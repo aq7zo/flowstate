@@ -13,6 +13,7 @@ body {
 }
 
 body {
+  min-height: 100dvh;
   background: radial-gradient(circle at 80% 0%, rgba(124, 110, 247, 0.14), transparent 42%), var(--bg-base);
   color: var(--text-primary);
   font-family: "DM Sans", sans-serif;
@@ -52,6 +53,10 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .skip-link {
@@ -111,7 +116,7 @@ textarea {
 .app-main {
   max-width: 1160px;
   margin: 0 auto;
-  padding: 2rem 1.2rem 5rem;
+  padding: 2rem 1.2rem max(5rem, env(safe-area-inset-bottom));
 }
 
 .view {
@@ -142,5 +147,12 @@ textarea {
 @media (min-width: 768px) {
   .app-main {
     padding-inline: 2.5rem;
+  }
+}
+
+@media (max-height: 760px) {
+  .app-main {
+    padding-top: 1rem;
+    padding-bottom: 1.5rem;
   }
 }

@@ -525,9 +525,9 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
           openPopover({ mode: "root", parentId: null, dependsOn: null, insertAfterId: null });
         }
       }
-      if (event.key.toLowerCase() === "t" && !event.metaKey && !event.ctrlKey) window.location.hash = "#today";
-      if (event.key.toLowerCase() === "f" && !event.metaKey && !event.ctrlKey) window.location.hash = "#focus";
-      if (event.key.toLowerCase() === "c" && !event.metaKey && !event.ctrlKey) window.location.hash = "#calendar";
+      if (event.key.toLowerCase() === "t" && !event.metaKey && !event.ctrlKey) window.location.href = "./tasks.html";
+      if (event.key.toLowerCase() === "f" && !event.metaKey && !event.ctrlKey) window.location.href = "./focus.html";
+      if (event.key.toLowerCase() === "c" && !event.metaKey && !event.ctrlKey) window.location.href = "./calendar.html";
     });
   }
 

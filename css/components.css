@@ -85,6 +85,8 @@
   padding: 0.8rem;
   display: grid;
   gap: 0.65rem;
+  max-height: calc(100dvh - 9rem);
+  overflow-y: auto;
 }
 
 .task-form-popover[hidden] {
@@ -266,26 +268,99 @@
   gap: 1rem;
 }
 
-.timer-panel {
-  align-content: start;
+.focus-single {
+  position: relative;
+  min-height: var(--focus-panel-min-height, 640px);
   display: grid;
-  gap: 0.8rem;
+  grid-template-rows: auto 1fr;
+  overflow: visible;
+}
+
+.focus-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  min-height: 2.6rem;
+}
+
+.focus-cog {
+  justify-self: end;
+  min-height: 2.2rem;
+  min-width: 2.2rem;
+}
+
+.focus-view {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  padding: 0.4rem 0.35rem 0.35rem;
+}
+
+.focus-view[hidden] {
+  display: none !important;
+}
+
+#focus-timer-view {
+  align-content: center;
+}
+
+#focus-settings-view {
+  align-content: start;
+}
+
+.timer-panel {
+  align-content: center;
+  justify-items: center;
+  display: grid;
+  gap: 1rem;
+  text-align: center;
+  min-height: 0;
+  padding: 1rem 0.8rem;
 }
 
 .timer-display {
-  font-size: clamp(2.5rem, 8vw, 5rem);
-  line-height: 1;
+  font-size: clamp(4.2rem, 14vw, 8rem);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+  text-shadow: 0 0 24px rgba(124, 110, 247, 0.28);
 }
 
 .timer-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  justify-content: center;
+}
+
+#timer-phase {
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  padding: 0.35rem 0.8rem;
+}
+
+#timer-session {
+  font-size: 1rem;
+}
+
+.timer-panel .btn {
+  min-width: 110px;
+  font-size: 1.02rem;
+  padding: 0.6rem 1.1rem;
 }
 
 .alarm-panel {
   display: grid;
-  gap: 0.8rem;
+  gap: 1rem;
+}
+
+#focus-settings-view .alarm-panel h2 {
+  margin-bottom: 0.2rem;
 }
 
 .checkbox-row {
@@ -313,6 +388,8 @@
   display: grid;
   gap: 0.8rem;
   padding: 1.2rem;
+  max-height: min(88dvh, 760px);
+  overflow-y: auto;
 }
 
 #task-edit-modal input:invalid {
@@ -493,5 +570,19 @@
   .focus-layout {
     align-items: start;
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-height: 760px) {
+  .task-form-popover {
+    position: static;
+    width: 100%;
+    margin-top: 0.5rem;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .focus-single {
+    min-height: max(var(--focus-panel-min-height, 560px), calc(100dvh - 7rem));
   }
 }
