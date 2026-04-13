@@ -1,0 +1,52 @@
+Design a task system where users can quickly add tasks from a queue card and progressively structure work into deep nested trees, while enforcing valid sequential dependencies.
+
+Core UX
+On first view, user sees the Task Queue with a primary queue card.
+The queue card contains a prominent + button.
+Clicking + opens an inline popover (anchored to the button) containing:
+Task title
+Priority
+Estimated minutes
+Notes
+Reference link
+Add Task action
+Submitting creates a new task card in the queue.
+Task Card Actions
+Each created task card supports:
+
+Add Sub-task
+Add Sequential Task Right After
+Hierarchy Rules
+Sub-task nesting is unlimited depth.
+Any sub-task can itself create:
+more sub-tasks
+sequential tasks
+Sequential Rules
+Sequential tasks are allowed only for same-level siblings under the same parent.
+“Add sequential task right after it” behavior:
+creates a new sibling directly after the current task
+auto-sets dependsOn = currentTaskId
+Guardrails are strict:
+block dependency cycles
+block dependencies outside sibling scope
+do not auto-correct invalid dependencies
+show clear inline validation when blocked
+Parent Completion Behavior
+Parent task auto-completes only when all descendants (not just direct children) are complete.
+Default Tree Presentation
+Nested branches are collapsed by default.
+Show progress summary on collapsed parents (example: 2/5 complete).
+User can expand/collapse branches.
+Required Interaction/State Behavior
+Preserve stable sibling ordering and ensure sequential insertion keeps relative order.
+Sequentially locked tasks are visually indicated and non-actionable until dependency completes.
+On dependency completion, unlock state updates immediately.
+Notes and reference links are editable and persisted per task.
+Reference links open in a new tab.
+Acceptance Criteria
+User can create unlimited-depth nested tasks.
+User can create sequential sibling tasks at any depth.
+Invalid dependencies cannot be saved (cross-scope or cycles).
+Parent completion reflects all descendant states.
+Collapsed-by-default tree renders accurate progress counts.
+Inline popover creation flow is keyboard accessible and fast for repeated entry.

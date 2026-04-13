@@ -46,82 +46,68 @@
           </div>
         </div>
 
-        <form id="task-form" class="panel task-form" aria-label="Create task">
-          <div class="field-row">
-            <label for="task-title">Task Title</label>
-            <input
-              id="task-title"
-              name="taskTitle"
-              type="text"
-              maxlength="120"
-              required
-              autocomplete="off"
-              placeholder="Write lab report…"
-            />
-          </div>
-          <div class="form-grid">
-            <div class="field-row">
-              <label for="task-priority">Priority</label>
-              <select id="task-priority" name="taskPriority">
-                <option value="high">High</option>
-                <option value="medium" selected>Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label for="task-estimated">Estimated Minutes</label>
-              <input
-                id="task-estimated"
-                name="taskEstimated"
-                type="number"
-                min="0"
-                step="5"
-                inputmode="numeric"
-                autocomplete="off"
-                placeholder="45"
-              />
-            </div>
-          </div>
-          <div class="form-grid">
-            <div class="field-row">
-              <label for="task-type">Task Type</label>
-              <select id="task-type" name="taskType">
-                <option value="standard" selected>Standard</option>
-                <option value="sequential">Sequential</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label for="task-parent">Parent Task (Sub-task)</label>
-              <select id="task-parent" name="taskParent">
-                <option value="">None</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <label for="task-depends-on">Depends On (Sequential)</label>
-            <select id="task-depends-on" name="taskDependsOn">
-              <option value="">None</option>
-            </select>
-          </div>
-          <div class="field-row">
-            <label for="task-notes">Notes</label>
-            <textarea id="task-notes" name="taskNotes" maxlength="500" rows="3" placeholder="Add context for this task…"></textarea>
-          </div>
-          <div class="field-row">
-            <label for="task-link">Reference Link</label>
-            <input id="task-link" name="taskLink" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.com/…" />
-          </div>
-          <div class="task-form-actions">
-            <button type="submit" class="btn btn-primary">Add Task</button>
-          </div>
-        </form>
-
         <section class="panel">
           <div class="panel-head">
             <h2>Task Queue</h2>
             <p id="task-summary" class="mono muted" aria-live="polite"></p>
           </div>
+          <article class="queue-create-card">
+            <div>
+              <p class="mono muted">Quick Capture</p>
+              <p>Create a task, then shape its sub-tree & sequence.</p>
+            </div>
+            <button id="task-queue-add-btn" type="button" class="btn btn-primary" aria-expanded="false" aria-controls="task-form">+</button>
+            <form id="task-form" class="task-form-popover" aria-label="Create task" hidden>
+              <div class="field-row">
+                <label for="task-title">Task Title</label>
+                <input
+                  id="task-title"
+                  name="taskTitle"
+                  type="text"
+                  maxlength="120"
+                  required
+                  autocomplete="off"
+                  placeholder="Write lab report…"
+                />
+              </div>
+              <div class="form-grid">
+                <div class="field-row">
+                  <label for="task-priority">Priority</label>
+                  <select id="task-priority" name="taskPriority">
+                    <option value="high">High</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div class="field-row">
+                  <label for="task-estimated">Estimated Minutes</label>
+                  <input
+                    id="task-estimated"
+                    name="taskEstimated"
+                    type="number"
+                    min="0"
+                    step="5"
+                    inputmode="numeric"
+                    autocomplete="off"
+                    placeholder="45"
+                  />
+                </div>
+              </div>
+              <div class="field-row">
+                <label for="task-notes">Notes</label>
+                <textarea id="task-notes" name="taskNotes" maxlength="500" rows="3" placeholder="Add context for this task…"></textarea>
+              </div>
+              <div class="field-row">
+                <label for="task-link">Reference Link</label>
+                <input id="task-link" name="taskLink" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.com/…" />
+              </div>
+              <div class="task-form-actions">
+                <button type="submit" class="btn btn-primary">Add Task</button>
+              </div>
+            </form>
+          </article>
           <p id="planning-warning" class="planning-warning mono muted" aria-live="polite"></p>
+          <p id="task-inline-feedback" class="planning-warning mono" aria-live="polite"></p>
           <ul id="task-list" class="task-list" aria-live="polite"></ul>
           <p id="task-empty-state" class="empty-state">No tasks yet. Add your first one above.</p>
         </section>
