@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0a0c" />
+    <link rel="manifest" href="./manifest.json" />
+    <title>Flowstate</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,300;9..144,500&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/tokens.css" />
+    <link rel="stylesheet" href="./css/base.css" />
+    <link rel="stylesheet" href="./css/components.css" />
+    <link rel="stylesheet" href="./css/animations.css" />
+    <script src="https://unpkg.com/dexie@4.0.4/dist/dexie.min.js" defer></script>
+    <script type="module" src="./js/main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to Main Content</a>
+    <header class="app-header">
+      <div class="brand-wrap">
+        <p class="brand" translate="no">flowstate<span class="brand-dot">.</span></p>
+      </div>
+      <nav class="top-nav" aria-label="Primary">
+        <a href="#today" data-route-link>Today</a>
+        <a href="#focus" data-route-link>Focus</a>
+        <a href="#calendar" data-route-link>Calendar</a>
+        <a href="#settings" data-route-link>Settings</a>
+      </nav>
+    </header>
+
+    <main id="main-content" class="app-main">
+      <section id="view-today" data-view="today" class="view">
+        <div class="section-head">
+          <div>
+            <h1>Tomorrow Starts Tonight</h1>
+            <p id="today-date-label" class="muted"></p>
+          </div>
+          <div class="head-actions">
+            <button id="save-template-btn" type="button" class="btn btn-secondary">Save as Template</button>
+            <button id="apply-template-btn" type="button" class="btn btn-ghost">Apply Template</button>
+          </div>
+        </div>
+
+        <form id="task-form" class="panel task-form" aria-label="Create task">
+          <div class="field-row">
+            <label for="task-title">Task Title</label>
+            <input
+              id="task-title"
+              name="taskTitle"
+              type="text"
+              maxlength="120"
+              required
+              autocomplete="off"
+              placeholder="Write lab report…"
+            />
+          </div>
+          <div class="form-grid">
+            <div class="field-row">
+              <label for="task-priority">Priority</label>
+              <select id="task-priority" name="taskPriority">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label for="task-estimated">Estimated Minutes</label>
+              <input
+                id="task-estimated"
+                name="taskEstimated"
+                type="number"
+                min="0"
+                step="5"
+                inputmode="numeric"
+                autocomplete="off"
+                placeholder="45"
+              />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field-row">
+              <label for="task-type">Task Type</label>
+              <select id="task-type" name="taskType">
+                <option value="standard" selected>Standard</option>
+                <option value="sequential">Sequential</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label for="task-parent">Parent Task (Sub-task)</label>
+              <select id="task-parent" name="taskParent">
+                <option value="">None</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <label for="task-depends-on">Depends On (Sequential)</label>
+            <select id="task-depends-on" name="taskDependsOn">
+              <option value="">None</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="task-notes">Notes</label>
+            <textarea id="task-notes" name="taskNotes" maxlength="500" rows="3" placeholder="Add context for this task…"></textarea>
+          </div>
+          <div class="field-row">
+            <label for="task-link">Reference Link</label>
+            <input id="task-link" name="taskLink" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.com/…" />
+          </div>
+          <div class="task-form-actions">
+            <button type="submit" class="btn btn-primary">Add Task</button>
+          </div>
+        </form>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Task Queue</h2>
+            <p id="task-summary" class="mono muted" aria-live="polite"></p>
+          </div>
+          <p id="planning-warning" class="planning-warning mono muted" aria-live="polite"></p>
+          <ul id="task-list" class="task-list" aria-live="polite"></ul>
+          <p id="task-empty-state" class="empty-state">No tasks yet. Add your first one above.</p>
+        </section>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Time Blocking</h2>
+            <button id="toggle-timeline-btn" type="button" class="btn btn-ghost">Hide Timeline</button>
+          </div>
+          <div id="timeline-view" class="timeline-view"></div>
+        </section>
+      </section>
+
+      <section id="view-focus" data-view="focus" class="view" hidden>
+        <div class="section-head">
+          <div>
+            <h1>Focus Mode</h1>
+            <p class="muted">Work in cycles and keep the rhythm.</p>
+          </div>
+        </div>
+        <section class="panel focus-layout">
+          <div class="timer-panel">
+            <p id="timer-phase" class="chip mono">IDLE</p>
+            <p id="timer-display" class="timer-display mono" aria-live="polite">25:00</p>
+            <p id="timer-session" class="muted mono">Session 0 of 4</p>
+            <div class="timer-controls">
+              <button id="timer-start" type="button" class="btn btn-primary">Start</button>
+              <button id="timer-pause" type="button" class="btn btn-secondary">Pause</button>
+              <button id="timer-reset" type="button" class="btn btn-ghost">Reset</button>
+            </div>
+          </div>
+          <form id="alarm-form" class="alarm-panel" aria-label="Alarm settings">
+            <h2>Alarm</h2>
+            <div class="field-row">
+              <label for="alarm-file">Upload Audio (mp3, wav, ogg)</label>
+              <input id="alarm-file" name="alarmFile" type="file" accept=".mp3,.wav,.ogg,audio/*" />
+            </div>
+            <div class="field-row">
+              <label for="alarm-type">Alarm Type</label>
+              <select id="alarm-type" name="alarmType">
+                <option value="file">File</option>
+                <option value="youtube">YouTube</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label for="alarm-youtube-url">YouTube URL</label>
+              <input id="alarm-youtube-url" name="alarmYoutubeUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://www.youtube.com/watch?v=..." />
+            </div>
+            <div class="field-row">
+              <label for="alarm-volume">Volume</label>
+              <input id="alarm-volume" name="alarmVolume" type="range" min="0" max="1" step="0.05" />
+            </div>
+            <div class="field-row checkbox-row">
+              <input id="alarm-fade" name="alarmFade" type="checkbox" />
+              <label for="alarm-fade">Fade in over 8 seconds</label>
+            </div>
+            <div class="timer-controls">
+              <button id="alarm-save" type="submit" class="btn btn-primary">Save Alarm</button>
+              <button id="alarm-preview" type="button" class="btn btn-secondary">Preview</button>
+            </div>
+            <p id="alarm-status" class="mono muted" aria-live="polite"></p>
+          </form>
+        </section>
+      </section>
+
+      <section id="view-calendar" data-view="calendar" class="view" hidden>
+        <div class="section-head">
+          <div>
+            <h1>Calendar</h1>
+            <p class="muted">Track completion trends, streaks, and workload.</p>
+          </div>
+          <div class="head-actions">
+            <button id="toggle-heatmap" type="button" class="btn btn-secondary">Heatmap View</button>
+          </div>
+        </div>
+        <section class="panel">
+          <div class="calendar-filter-row">
+            <label for="calendar-tag-filter" class="mono">Filter Tag</label>
+            <select id="calendar-tag-filter">
+              <option value="all">All</option>
+            </select>
+            <p id="streak-counter" class="mono muted">Streak: 0 days</p>
+          </div>
+          <div id="month-view" class="calendar-grid-wrap"></div>
+          <div id="heatmap-view" class="heatmap-wrap" hidden></div>
+        </section>
+        <section class="panel">
+          <h2>Week Summary</h2>
+          <div id="week-summary" class="summary-grid"></div>
+        </section>
+      </section>
+
+      <section id="view-settings" data-view="settings" class="view" hidden>
+        <div class="section-head">
+          <div>
+            <h1>Settings</h1>
+            <p class="muted">Manage local data and preferences.</p>
+          </div>
+        </div>
+        <section class="panel">
+          <h2>General</h2>
+          <div class="form-grid">
+            <div class="field-row">
+              <label for="default-priority-setting">Default Task Priority</label>
+              <select id="default-priority-setting">
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label for="carry-threshold-setting">Carry-over Prompt Threshold</label>
+              <input id="carry-threshold-setting" type="number" min="1" step="1" inputmode="numeric" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Pomodoro</h2>
+          <div class="form-grid">
+            <div class="field-row">
+              <label for="setting-work-min">Work (Minutes)</label>
+              <input id="setting-work-min" type="number" min="5" step="1" inputmode="numeric" />
+            </div>
+            <div class="field-row">
+              <label for="setting-short-break-min">Short Break</label>
+              <input id="setting-short-break-min" type="number" min="1" step="1" inputmode="numeric" />
+            </div>
+            <div class="field-row">
+              <label for="setting-long-break-min">Long Break</label>
+              <input id="setting-long-break-min" type="number" min="1" step="1" inputmode="numeric" />
+            </div>
+            <div class="field-row">
+              <label for="setting-sessions-before-long">Sessions Before Long Break</label>
+              <input id="setting-sessions-before-long" type="number" min="1" step="1" inputmode="numeric" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Integrations</h2>
+          <div class="field-row">
+            <label for="canvas-domain">Canvas Domain</label>
+            <input id="canvas-domain" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.edu" />
+          </div>
+          <div class="field-row">
+            <label for="canvas-token">Canvas Access Token</label>
+            <input id="canvas-token" type="password" autocomplete="off" placeholder="Paste personal access token…" />
+          </div>
+          <div class="field-row">
+            <label for="unical-url">UniCalendar Feed URL</label>
+            <input id="unical-url" type="url" inputmode="url" autocomplete="off" placeholder="https://calendar-feed.ics" />
+          </div>
+          <div class="modal-actions">
+            <button id="canvas-save-btn" type="button" class="btn btn-secondary">Save Canvas Credentials</button>
+            <button id="canvas-sync-btn" type="button" class="btn btn-primary">Sync Canvas</button>
+            <button id="unical-sync-btn" type="button" class="btn btn-ghost">Sync UniCalendar</button>
+          </div>
+          <p id="integration-status" class="mono muted" aria-live="polite"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Custom Tags</h2>
+          <form id="custom-tag-form" class="form-grid">
+            <div class="field-row">
+              <label for="custom-tag-name">Tag Name</label>
+              <input id="custom-tag-name" type="text" maxlength="30" autocomplete="off" placeholder="School" />
+            </div>
+            <div class="field-row">
+              <label for="custom-tag-color">Tag Color</label>
+              <input id="custom-tag-color" type="color" value="#3dd9c5" />
+            </div>
+            <div class="task-form-actions">
+              <button type="submit" class="btn btn-primary">Add Tag</button>
+            </div>
+          </form>
+          <ul id="custom-tag-list" class="task-list"></ul>
+        </section>
+
+        <section class="panel">
+          <h2>Data</h2>
+          <div class="modal-actions">
+            <button id="export-json" type="button" class="btn btn-primary">Export Backup (JSON)</button>
+            <button id="import-json-trigger" type="button" class="btn btn-secondary">Import Backup</button>
+            <button id="clear-data-btn" type="button" class="btn btn-ghost">Clear All Data</button>
+          </div>
+          <input id="import-json-file" type="file" accept=".json,application/json" hidden />
+          <p id="export-status" class="mono muted" aria-live="polite"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Keyboard Shortcuts</h2>
+          <ul class="shortcut-list mono">
+            <li><span>N</span><span>New Task</span></li>
+            <li><span>T</span><span>Go to Today</span></li>
+            <li><span>F</span><span>Go to Focus</span></li>
+            <li><span>C</span><span>Go to Calendar</span></li>
+            <li><span>Ctrl+Z</span><span>Undo Task Completion</span></li>
+            <li><span>Esc</span><span>Close Modal</span></li>
+          </ul>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="carryover-modal" class="modal">
+      <form method="dialog" class="modal-content">
+        <h2>Unfinished Tasks Found</h2>
+        <p id="carryover-copy"></p>
+        <ul id="carryover-list" class="carryover-list"></ul>
+        <div class="modal-actions">
+          <button id="carryover-move-all" type="button" class="btn btn-primary">Move All</button>
+          <button id="carryover-dismiss-all" type="button" class="btn btn-secondary">Dismiss All</button>
+          <button id="carryover-close" type="button" class="btn btn-ghost">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="task-edit-modal" class="modal">
+      <form id="task-edit-form" class="modal-content">
+        <h2>Edit Task</h2>
+        <div class="field-row">
+          <label for="task-edit-title">Task Title</label>
+          <input
+            id="task-edit-title"
+            name="taskEditTitle"
+            type="text"
+            maxlength="120"
+            required
+            autocomplete="off"
+            placeholder="Refine your task…"
+          />
+        </div>
+        <div class="form-grid">
+          <div class="field-row">
+            <label for="task-edit-priority">Priority</label>
+            <select id="task-edit-priority" name="taskEditPriority">
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="task-edit-estimated">Estimated Minutes</label>
+            <input
+              id="task-edit-estimated"
+              name="taskEditEstimated"
+              type="number"
+              min="0"
+              step="5"
+              inputmode="numeric"
+              autocomplete="off"
+              placeholder="30"
+            />
+          </div>
+        </div>
+        <div class="field-row">
+          <label for="task-edit-notes">Notes</label>
+          <textarea id="task-edit-notes" rows="3" maxlength="500" placeholder="Add context…"></textarea>
+        </div>
+        <div class="field-row">
+          <label for="task-edit-link">Reference Link</label>
+          <input id="task-edit-link" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/…" />
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Save Task</button>
+          <button id="task-edit-cancel" type="button" class="btn btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="template-modal" class="modal">
+      <form id="template-form" class="modal-content">
+        <h2>Templates</h2>
+        <div class="field-row">
+          <label for="template-name">Template Name</label>
+          <input id="template-name" type="text" maxlength="50" autocomplete="off" placeholder="Monday School Day" />
+        </div>
+        <div class="modal-actions">
+          <button id="template-save-btn" type="button" class="btn btn-primary">Save Current Tasks</button>
+          <button id="template-close-btn" type="button" class="btn btn-ghost">Close</button>
+        </div>
+        <ul id="template-list" class="task-list"></ul>
+      </form>
+    </dialog>
+
+    <dialog id="template-preview-modal" class="modal">
+      <form id="template-preview-form" class="modal-content">
+        <h2>Template Preview</h2>
+        <p id="template-preview-copy" class="muted"></p>
+        <ul id="template-preview-list" class="task-list"></ul>
+        <div class="modal-actions">
+          <button id="template-apply-all-btn" type="button" class="btn btn-primary">Apply All</button>
+          <button id="template-apply-selected-btn" type="button" class="btn btn-secondary">Apply Selected</button>
+          <button id="template-preview-close-btn" type="button" class="btn btn-ghost">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-preview-modal" class="modal">
+      <form id="import-preview-form" class="modal-content">
+        <h2>Import Backup</h2>
+        <p id="import-preview-copy"></p>
+        <div class="modal-actions">
+          <button id="import-merge-btn" type="button" class="btn btn-primary">Merge</button>
+          <button id="import-replace-btn" type="button" class="btn btn-secondary">Replace</button>
+          <button id="import-close-btn" type="button" class="btn btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

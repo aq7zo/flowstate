@@ -1,0 +1,42 @@
+.btn-primary:hover {
+  box-shadow: 0 0 24px rgba(124, 110, 247, 0.45);
+}
+
+.task-item {
+  transition: transform 160ms ease-out, opacity 160ms ease-out, border-color 160ms ease-out;
+}
+
+.chip {
+  animation: settleIn 300ms ease-out both;
+}
+
+@keyframes settleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes unlockSweep {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

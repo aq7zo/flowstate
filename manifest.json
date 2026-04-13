@@ -1,0 +1,9 @@
+{
+  "name": "Flowstate",
+  "short_name": "Flowstate",
+  "description": "Local-first planner with Pomodoro focus and academic calendar.",
+  "start_url": "./index.html#today",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c"
+}
