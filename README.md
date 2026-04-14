@@ -1,30 +1,18 @@
 # Flowstate
 
-Local-first productivity app MVP for DLSU students, built with HTML/CSS/Vanilla JS + Dexie.
+A local-first day tracker and Pomodoro focus app built with vanilla HTML/CSS/JS and IndexedDB (Dexie).
 
-## Run
+## Features
 
-- Open `tasks.html` in a modern browser (`index.html` redirects there).
-- Keep DevTools open on first run to verify IndexedDB + module loading.
-
-## Implemented Features
-
-- Planner: task CRUD, priority tags, notes/link attachments, time-block timeline, sequential dependencies, and sub-task progress.
-- Task Queue UX: single-card `Today` / `Tomorrow` / `Upcoming` buckets with collapsible sections and completion circles.
-- Carry-over: daily unfinished-task modal with per-task and bulk actions.
-- Focus mode: Pomodoro cycle with file or YouTube alarm, fade, and session logging.
-- Calendar analytics: month view, heatmap toggle, streak counter, week summary, and tag filtering.
-- Integrations: Canvas credentials storage + sync placeholder and UniCalendar `.ics` sync parser.
-- Data: JSON export/import (`Merge`/`Replace`) and clear-all data action.
-- PWA base: `manifest.json` and `service-worker.js` for install/offline caching.
-- Multi-page app split: `tasks.html`, `focus.html`, `calendar.html`, and `settings.html`.
-
-## Quick Smoke Test
-
-- Add top-level + sub-tasks; verify parent auto-completes after all sub-tasks are done.
-- Create a sequential task with dependency; verify lock state/unlock when dependency completes.
-- Add tasks to each bucket and verify collapse/expand plus completion circles.
-- Toggle month/heatmap in Calendar and validate streak + week summary updates.
-- Run UniCalendar sync with an `.ics` feed URL and confirm events are ingested.
-- In Focus mode, test both file alarm and YouTube alarm preview.
-- Export then import backup using `Merge` and `Replace`.
+- **Task management** — Create, edit, and delete tasks with priority levels, time estimates, notes, and reference links. Supports sub-tasks (up to 3 levels deep) and sequential dependencies with lock states.
+- **Day allocation bar** — Visual "disk-partition" bar that maps estimated task minutes against a 24-hour day. Color-coded states for within-quota, over-quota, and exceeding 24h, with a configurable daily quota marker.
+- **Buckets** — Organize tasks into Today, Tomorrow, and Upcoming with collapsible sections and per-bucket counts.
+- **Carry-over** — On a new day, a modal surfaces unfinished tasks with options to move or dismiss them individually or in bulk.
+- **Tomorrow planner** — Scheduled evening prompt to plan the next day, with snooze support.
+- **Pomodoro focus mode** — Configurable work/break cycle timer with session tracking, file or YouTube alarm, volume control, and fade-in.
+- **Calendar analytics** — Month grid view, heatmap toggle, streak counter, week summary, and tag filtering.
+- **Dashboard widgets** — Live date/clock with mini month dot grid, and weather widget powered by MET.no with current conditions and 4-day forecast.
+- **Custom tags** — User-defined tag names and colors managed from settings.
+- **Integrations** — Canvas LMS credential storage with sync placeholder, and UniCalendar .ics feed parser.
+- **Data portability** — Full JSON export/import with merge and replace modes, plus a clear-all option.
+- **PWA** — Manifest and service worker for install and offline caching.
