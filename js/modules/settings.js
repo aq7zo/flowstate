@@ -3,10 +3,12 @@ import { getSettings, patchSettings } from "../db.js";
 export function createSettingsModule({ onSettingsChanged }) {
   const defaultPriorityNode = document.querySelector("#default-priority-setting");
   const carryThresholdNode = document.querySelector("#carry-threshold-setting");
-  const workNode = document.querySelector("#setting-work-min");
-  const shortBreakNode = document.querySelector("#setting-short-break-min");
-  const longBreakNode = document.querySelector("#setting-long-break-min");
-  const sessionsNode = document.querySelector("#setting-sessions-before-long");
+  const tomorrowPromptTimeNode = document.querySelector("#tomorrow-prompt-time-setting");
+  const tomorrowPromptEnabledNode = document.querySelector("#tomorrow-prompt-enabled-setting");
+  const dailyQuotaNode = document.querySelector("#daily-quota-setting");
+  const weatherCityNode = document.querySelector("#weather-city-setting");
+  const weatherLatNode = document.querySelector("#weather-lat-setting");
+  const weatherLonNode = document.querySelector("#weather-lon-setting");
   const customTagForm = document.querySelector("#custom-tag-form");
   const customTagNameNode = document.querySelector("#custom-tag-name");
   const customTagColorNode = document.querySelector("#custom-tag-color");
@@ -41,10 +43,12 @@ export function createSettingsModule({ onSettingsChanged }) {
     settingsCache = await getSettings();
     defaultPriorityNode.value = settingsCache.defaultPriority || "medium";
     carryThresholdNode.value = String(settingsCache.carryOverThreshold || 1);
-    workNode.value = String(settingsCache.workMin || 25);
-    shortBreakNode.value = String(settingsCache.shortBreakMin || 5);
-    longBreakNode.value = String(settingsCache.longBreakMin || 15);
-    sessionsNode.value = String(settingsCache.sessionsBeforeLong || 4);
+    dailyQuotaNode.value = String((settingsCache.dailyQuota || 480) / 60);
+    tomorrowPromptTimeNode.value = settingsCache.tomorrowPromptTime || "20:30";
+    tomorrowPromptEnabledNode.checked = Boolean(settingsCache.tomorrowPromptEnabled);
+    weatherCityNode.value = settingsCache.weatherCity || "";
+    weatherLatNode.value = settingsCache.weatherLat ?? "";
+    weatherLonNode.value = settingsCache.weatherLon ?? "";
     renderCustomTags();
   }
 
@@ -52,15 +56,17 @@ export function createSettingsModule({ onSettingsChanged }) {
     settingsCache = await patchSettings({
       defaultPriority: defaultPriorityNode.value,
       carryOverThreshold: Math.max(1, Number(carryThresholdNode.value) || 1),
-      workMin: Math.max(1, Number(workNode.value) || 25),
-      shortBreakMin: Math.max(1, Number(shortBreakNode.value) || 5),
-      longBreakMin: Math.max(1, Number(longBreakNode.value) || 15),
-      sessionsBeforeLong: Math.max(1, Number(sessionsNode.value) || 4),
+      dailyQuota: Math.max(60, Math.round((Number(dailyQuotaNode.value) || 8) * 60)),
+      tomorrowPromptTime: tomorrowPromptTimeNode.value || "20:30",
+      tomorrowPromptEnabled: tomorrowPromptEnabledNode.checked,
+      weatherCity: weatherCityNode.value.trim(),
+      weatherLat: weatherLatNode.value ? Number(weatherLatNode.value) : null,
+      weatherLon: weatherLonNode.value ? Number(weatherLonNode.value) : null,
     });
     await onSettingsChanged?.(settingsCache);
   }
 
-  [defaultPriorityNode, carryThresholdNode, workNode, shortBreakNode, longBreakNode, sessionsNode].forEach((node) => {
+  [defaultPriorityNode, carryThresholdNode, dailyQuotaNode, tomorrowPromptTimeNode, tomorrowPromptEnabledNode, weatherCityNode, weatherLatNode, weatherLonNode].forEach((node) => {
     node.addEventListener("change", saveNumericSettings);
   });
 

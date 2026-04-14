@@ -27,6 +27,9 @@ const DEFAULT_SETTINGS = {
     medium: "#f5a623",
     low: "#4ade80",
   },
+  dailyQuota: 480,
+  tomorrowPromptTime: "20:30",
+  tomorrowPromptEnabled: false,
 };
 
 export async function initDb() {
@@ -61,6 +64,7 @@ export async function createTask(taskInput) {
     estimatedMin: taskInput.estimatedMin || 0,
     status: taskInput.status || "pending",
     type: taskInput.type || "standard",
+    bucket: taskInput.bucket || "today",
     parentId: taskInput.parentId || null,
     dependsOn: taskInput.dependsOn || null,
     templateId: taskInput.templateId || null,

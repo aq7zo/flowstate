@@ -1,6 +1,14 @@
 import { createTask, deleteTask, getTasksByDate, updateTask, bulkUpdateTasks } from "../db.js";
 import { formatLongDate, minutesToClock } from "../utils/dates.js";
 
+const BUCKETS = ["today", "tomorrow", "upcoming"];
+const MAX_DEPTH = 3;
+const BUCKET_LABEL = {
+  today: "Today",
+  tomorrow: "Tomorrow",
+  upcoming: "Upcoming",
+};
+
 function getPriorityClass(priority) {
   if (priority === "high") return "priority-high";
   if (priority === "low") return "priority-low";
@@ -13,8 +21,12 @@ function getPriorityColor(priority) {
   return "var(--priority-medium)";
 }
 
-export function createTasksModule({ dateKey, onTaskMutated }) {
-  const addBtn = document.querySelector("#task-queue-add-btn");
+function normalizeBucket(bucket) {
+  return BUCKETS.includes(bucket) ? bucket : "today";
+}
+
+export function createTasksModule({ dateKey, quotaMinutes: rawQuota, onTaskMutated }) {
+  const quotaMinutes = rawQuota || 480;
   const formNode = document.querySelector("#task-form");
   const titleNode = document.querySelector("#task-title");
   const priorityNode = document.querySelector("#task-priority");
@@ -22,14 +34,26 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
   const notesNode = document.querySelector("#task-notes");
   const linkNode = document.querySelector("#task-link");
 
-  const listNode = document.querySelector("#task-list");
+  const listNodeByBucket = {
+    today: document.querySelector("#task-list-today"),
+    tomorrow: document.querySelector("#task-list-tomorrow"),
+    upcoming: document.querySelector("#task-list-upcoming"),
+  };
+  const bucketToggleNodes = Array.from(document.querySelectorAll("[data-bucket-toggle]"));
+  const bucketAddNodes = Array.from(document.querySelectorAll("[data-bucket-add]"));
+  const bucketCountNodes = Array.from(document.querySelectorAll("[data-bucket-count]"));
+
   const summaryNode = document.querySelector("#task-summary");
   const dateLabelNode = document.querySelector("#today-date-label");
-  const emptyNode = document.querySelector("#task-empty-state");
   const warningNode = document.querySelector("#planning-warning");
   const feedbackNode = document.querySelector("#task-inline-feedback");
-  const timelineNode = document.querySelector("#timeline-view");
-  const toggleTimelineBtn = document.querySelector("#toggle-timeline-btn");
+  const allocationView = document.querySelector("#allocation-view");
+  const allocationBar = document.querySelector("#allocation-bar");
+  const allocationContainer = document.querySelector(".allocation-container");
+  const quotaMarkerEl = document.querySelector("#allocation-quota-marker");
+  const quotaLabelEl = document.querySelector("#allocation-quota-label");
+  const allocationLegend = document.querySelector("#allocation-legend");
+  const toggleAllocationBtn = document.querySelector("#toggle-allocation-btn");
 
   const editModal = document.querySelector("#task-edit-modal");
   const editForm = document.querySelector("#task-edit-form");
@@ -39,15 +63,22 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
   const editNotesNode = document.querySelector("#task-edit-notes");
   const editLinkNode = document.querySelector("#task-edit-link");
   const editCancelNode = document.querySelector("#task-edit-cancel");
+  const creationPanelNode = document.querySelector(".creation-panel");
+  const appMainNode = document.querySelector(".app-main");
 
   const collapsedMap = new Map();
+  const collapsedBuckets = new Map([
+    ["today", false],
+    ["tomorrow", true],
+    ["upcoming", true],
+  ]);
   const undoStack = [];
   let editingTaskId = null;
   let tasks = [];
   let showTimeline = true;
-  let createContext = { mode: "root", parentId: null, dependsOn: null, insertAfterId: null };
+  let createContext = { mode: "root", parentId: null, dependsOn: null, insertAfterId: null, bucket: "today" };
 
-  dateLabelNode.textContent = formatLongDate(dateKey);
+  if (dateLabelNode) dateLabelNode.textContent = formatLongDate(dateKey);
 
   function taskById(id) {
     return tasks.find((task) => task.id === id) || null;
@@ -73,15 +104,21 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     return ids;
   }
 
+  function getDepth(taskId) {
+    let depth = 0;
+    let current = taskById(taskId);
+    while (current?.parentId) {
+      depth++;
+      current = taskById(current.parentId);
+    }
+    return depth;
+  }
+
   function descendantsProgress(taskId) {
     const ids = descendantIds(taskId);
     if (ids.length === 0) return null;
     const done = ids.filter((id) => taskById(id)?.status === "done").length;
     return { done, total: ids.length };
-  }
-
-  function siblingsOf(task) {
-    return childrenOf(task.parentId || null);
   }
 
   function isLocked(task) {
@@ -127,15 +164,19 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
 
   async function insertTask(payload, options) {
     const parentId = options.parentId || null;
+    const parentTask = parentId ? taskById(parentId) : null;
+    const bucket = normalizeBucket(parentTask?.bucket || options.bucket || "today");
     const siblings = childrenOf(parentId);
     let targetOrder = siblings.length + 1;
     if (options.insertAfterId) {
       const index = siblings.findIndex((task) => task.id === options.insertAfterId);
       targetOrder = index >= 0 ? index + 2 : targetOrder;
     }
+
     const created = await createTask({
       ...payload,
       parentId,
+      bucket,
       dependsOn: options.dependsOn || null,
       type: payload.type || "standard",
       date: dateKey,
@@ -149,7 +190,6 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
       await bulkUpdateTasks(shifted);
     }
 
-    await normalizeSiblingOrder(parentId);
     await refresh();
     return created;
   }
@@ -179,9 +219,9 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
 
   function setWarning() {
     const estimated = tasks.reduce((sum, task) => sum + (Number(task.estimatedMin) || 0), 0);
-    if (estimated > 8 * 60) {
+    if (estimated > quotaMinutes) {
       warningNode.dataset.visible = "true";
-      warningNode.textContent = `You've planned ${minutesToClock(estimated)} for an 8h day.`;
+      warningNode.textContent = `You've planned ${minutesToClock(estimated)} against a ${minutesToClock(quotaMinutes)} quota.`;
       return;
     }
     warningNode.dataset.visible = "false";
@@ -189,40 +229,88 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
   }
 
   function openPopover(context) {
-    createContext = context;
-    formNode.hidden = false;
-    addBtn.setAttribute("aria-expanded", "true");
+    createContext = {
+      ...createContext,
+      ...context,
+      bucket: normalizeBucket(context.bucket || "today"),
+    };
+    creationPanelNode.classList.add("is-open");
+    appMainNode.classList.add("has-creation-panel");
     titleNode.focus();
   }
 
   function closePopover() {
-    formNode.hidden = true;
-    addBtn.setAttribute("aria-expanded", "false");
-    createContext = { mode: "root", parentId: null, dependsOn: null, insertAfterId: null };
+    creationPanelNode.classList.remove("is-open");
+    appMainNode.classList.remove("has-creation-panel");
+    createContext = { mode: "root", parentId: null, dependsOn: null, insertAfterId: null, bucket: "today" };
   }
 
-  function renderTimeline() {
-    timelineNode.innerHTML = "";
+  function setBucketExpanded(bucket, expanded) {
+    collapsedBuckets.set(bucket, !expanded);
+    const targetNode = listNodeByBucket[bucket];
+    if (targetNode) targetNode.hidden = !expanded;
+    const toggle = bucketToggleNodes.find((node) => node.dataset.bucketToggle === bucket);
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.textContent = `${BUCKET_LABEL[bucket]} ${expanded ? "[-]" : "[+]"}`;
+    }
+  }
+
+  function setBucketCount(bucket, count) {
+    const node = bucketCountNodes.find((entry) => entry.dataset.bucketCount === bucket);
+    if (!node) return;
+    node.hidden = count <= 0;
+    node.textContent = String(count);
+  }
+
+  function expandBucket(bucket) {
+    setBucketExpanded(normalizeBucket(bucket), true);
+  }
+
+  function renderAllocationBar() {
+    if (!allocationView) return;
     if (!showTimeline) {
-      timelineNode.hidden = true;
+      allocationView.hidden = true;
       return;
     }
-    timelineNode.hidden = false;
-    const top = childrenOf(null);
-    const total = top.reduce((sum, task) => sum + (Number(task.estimatedMin) || 0), 0);
-    const safe = Math.max(total, 1);
-    top.forEach((task) => {
-      const row = document.createElement("article");
-      row.className = "timeline-row";
-      row.innerHTML = `<p class="mono">${task.title} · ${minutesToClock(task.estimatedMin || 0)}</p>`;
-      const track = document.createElement("div");
-      track.className = "timeline-track";
-      const fill = document.createElement("span");
-      fill.style.width = `${Math.round(((task.estimatedMin || 0) / safe) * 100)}%`;
-      track.append(fill);
-      row.append(track);
-      timelineNode.append(row);
+    allocationView.hidden = false;
+
+    const todayRoots = childrenOf(null).filter((t) => normalizeBucket(t.bucket) === "today");
+    const timedTasks = todayRoots.filter((t) => (Number(t.estimatedMin) || 0) > 0);
+    const totalMinutes = timedTasks.reduce((sum, t) => sum + (Number(t.estimatedMin) || 0), 0);
+
+    let state = "healthy";
+    if (totalMinutes > 1440) state = "impossible";
+    else if (totalMinutes > quotaMinutes) state = "over-quota";
+
+    allocationBar.dataset.state = state;
+    allocationContainer.dataset.state = state;
+
+    const barPercent = totalMinutes > 0 ? Math.min((totalMinutes / 1440) * 100, 101) : 0;
+    allocationBar.style.width = barPercent > 0 ? `${barPercent}%` : "0";
+
+    allocationBar.innerHTML = "";
+    timedTasks.forEach((task) => {
+      const seg = document.createElement("div");
+      seg.className = "alloc-segment";
+      if (task.status === "done") seg.classList.add("is-done");
+      const segPercent = totalMinutes > 0 ? (task.estimatedMin / totalMinutes) * 100 : 0;
+      seg.style.flex = `0 0 ${segPercent}%`;
+      seg.title = `${task.title} · ${minutesToClock(task.estimatedMin)}`;
+      allocationBar.append(seg);
     });
+
+    const quotaPercent = (quotaMinutes / 1440) * 100;
+    quotaMarkerEl.style.left = `${quotaPercent}%`;
+    quotaLabelEl.textContent = minutesToClock(quotaMinutes);
+
+    const allocStr = minutesToClock(totalMinutes);
+    const quotaStr = minutesToClock(quotaMinutes);
+    let stateLabel = "Within capacity.";
+    if (state === "over-quota") stateLabel = "Exceeding your daily goal.";
+    if (state === "impossible") stateLabel = "Exceeding physical limits of a 24h day.";
+    allocationLegend.textContent = `Allocated: ${allocStr} / 24h (Quota: ${quotaStr}) \u2014 ${stateLabel}`;
+    allocationLegend.dataset.state = state;
   }
 
   function openEditModal(task) {
@@ -235,12 +323,34 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     editModal.showModal();
   }
 
-  function renderBranch(task, depth = 0) {
+  async function toggleTaskCompletion(task) {
+    if (isLocked(task)) return;
+    const nextStatus = task.status === "done" ? "pending" : "done";
+    const targetIds = [task.id, ...descendantIds(task.id)];
+    const completedAt = nextStatus === "done" ? new Date() : null;
+    undoStack.push({
+      id: task.id,
+      snapshot: { status: task.status, completedAt: task.completedAt || null },
+    });
+    if (undoStack.length > 10) undoStack.shift();
+
+    await bulkUpdateTasks(
+      targetIds.map((id) => ({
+        id,
+        changes: { status: nextStatus, completedAt },
+      })),
+    );
+    await refresh();
+    await syncAncestorCompletion(task.parentId || null);
+    await refresh();
+    onTaskMutated?.();
+  }
+
+  function renderBranch(task, mountNode, depth = 0) {
     const item = document.createElement("li");
     const locked = isLocked(task);
     item.className = "task-item";
     item.dataset.depth = String(Math.min(depth, 3));
-    item.style.marginLeft = `${depth * 16}px`;
     item.style.borderLeftColor = getPriorityColor(task.priority);
     item.classList.toggle("is-done", task.status === "done");
     item.classList.toggle("is-locked", locked);
@@ -248,39 +358,39 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     const children = childrenOf(task.id);
     const hasChildren = children.length > 0;
     if (hasChildren && !collapsedMap.has(task.id)) {
-      collapsedMap.set(task.id, true);
+      collapsedMap.set(task.id, false);
     }
     const collapsed = collapsedMap.get(task.id) ?? false;
 
-    const toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = "icon-btn branch-toggle";
-    toggleBtn.setAttribute("aria-label", hasChildren ? "Toggle sub-tasks" : "Task status");
-    toggleBtn.textContent = hasChildren ? (collapsed ? ">" : "v") : task.status === "done" ? "✓" : locked ? "🔒" : "○";
-    if (hasChildren) {
-      toggleBtn.addEventListener("click", () => {
-        collapsedMap.set(task.id, !collapsed);
-        render();
-      });
-    } else {
-      toggleBtn.disabled = locked;
-      toggleBtn.addEventListener("click", async () => {
-        undoStack.push({ id: task.id, snapshot: { status: task.status, completedAt: task.completedAt || null } });
-        if (undoStack.length > 10) undoStack.shift();
-        const nextStatus = task.status === "done" ? "pending" : "done";
-        await updateTask(task.id, { status: nextStatus, completedAt: nextStatus === "done" ? new Date() : null });
-        await refresh();
-        await syncAncestorCompletion(task.parentId || null);
-        await refresh();
-        onTaskMutated?.();
-      });
-    }
+    const completeBtn = document.createElement("button");
+    completeBtn.type = "button";
+    completeBtn.className = "task-check-btn";
+    completeBtn.setAttribute("aria-label", task.status === "done" ? "Mark task pending" : "Mark task done");
+    completeBtn.textContent = "✓";
+    completeBtn.disabled = locked;
+    completeBtn.addEventListener("click", () => toggleTaskCompletion(task));
 
     const content = document.createElement("div");
     content.className = "task-title-wrap";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "task-title-row";
+    if (hasChildren) {
+      const branchToggle = document.createElement("button");
+      branchToggle.type = "button";
+      branchToggle.className = "icon-btn branch-toggle";
+      branchToggle.setAttribute("aria-label", "Toggle sub-tasks");
+      branchToggle.textContent = collapsed ? ">" : "v";
+      branchToggle.addEventListener("click", () => {
+        collapsedMap.set(task.id, !collapsed);
+        render();
+      });
+      titleRow.append(branchToggle);
+    }
     const title = document.createElement("p");
     title.className = "task-title";
     title.textContent = task.title;
+    titleRow.append(title);
 
     const meta = document.createElement("div");
     meta.className = "task-meta";
@@ -309,7 +419,7 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
         meta.append(chip);
       }
     }
-    content.append(title, meta);
+    content.append(titleRow, meta);
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
@@ -319,9 +429,22 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     addSub.className = "icon-btn";
     addSub.setAttribute("aria-label", "Add sub-task");
     addSub.textContent = "Sub";
+    const taskDepth = depth;
+    if (taskDepth >= MAX_DEPTH) {
+      addSub.disabled = true;
+      addSub.title = `Cannot nest deeper than ${MAX_DEPTH} levels`;
+    }
     addSub.addEventListener("click", (event) => {
       event.stopPropagation();
-      openPopover({ mode: "subtask", parentId: task.id, dependsOn: null, insertAfterId: null });
+      if (taskDepth >= MAX_DEPTH) return;
+      openPopover({
+        mode: "subtask",
+        parentId: task.id,
+        dependsOn: null,
+        insertAfterId: null,
+        bucket: normalizeBucket(task.bucket),
+      });
+      expandBucket(normalizeBucket(task.bucket));
     });
 
     const addSeq = document.createElement("button");
@@ -336,7 +459,9 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
         parentId: task.parentId || null,
         dependsOn: task.id,
         insertAfterId: task.id,
+        bucket: normalizeBucket(task.bucket),
       });
+      expandBucket(normalizeBucket(task.bucket));
     });
 
     const edit = document.createElement("button");
@@ -361,8 +486,7 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     });
 
     actions.append(addSub, addSeq, edit, remove);
-
-    item.append(toggleBtn, content, actions);
+    item.append(completeBtn, content, actions);
 
     if (task.notes || task.link) {
       const details = document.createElement("div");
@@ -384,28 +508,51 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
       item.append(details);
     }
 
-    listNode.append(item);
-
+    mountNode.append(item);
     if (hasChildren && !collapsed) {
-      children.forEach((child) => renderBranch(child, depth + 1));
+      children.forEach((child) => renderBranch(child, mountNode, depth + 1));
     }
   }
 
-  function render() {
+  function renderBucket(bucket) {
+    const listNode = listNodeByBucket[bucket];
+    if (!listNode) return;
     listNode.innerHTML = "";
+    const roots = childrenOf(null).filter((task) => normalizeBucket(task.bucket) === bucket);
+    setBucketCount(bucket, roots.length);
+    if (roots.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "bucket-empty";
+      empty.textContent = "No tasks yet.";
+      listNode.append(empty);
+      return;
+    }
+    roots.forEach((task) => renderBranch(task, listNode, 0));
+  }
+
+  function render() {
     clearFeedback();
     setSummary();
     setWarning();
-    emptyNode.hidden = tasks.length > 0;
-
-    childrenOf(null).forEach((task) => renderBranch(task, 0));
-    renderTimeline();
+    BUCKETS.forEach((bucket) => {
+      setBucketExpanded(bucket, !collapsedBuckets.get(bucket));
+      renderBucket(bucket);
+    });
+    renderAllocationBar();
   }
 
   formNode.addEventListener("submit", async (event) => {
     event.preventDefault();
     const title = titleNode.value.trim();
     if (!title) return;
+
+    if (createContext.parentId) {
+      const parentDepth = getDepth(createContext.parentId);
+      if (parentDepth >= MAX_DEPTH) {
+        showFeedback(`Cannot nest deeper than ${MAX_DEPTH} levels.`, "danger");
+        return;
+      }
+    }
 
     const dependencyCheck = validateDependency(createContext.parentId, createContext.dependsOn);
     if (!dependencyCheck.valid) {
@@ -421,6 +568,7 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
         notes: notesNode.value.trim(),
         link: linkNode.value.trim(),
         type: createContext.mode === "sequential" ? "sequential" : "standard",
+        bucket: createContext.bucket,
       },
       createContext,
     );
@@ -435,17 +583,38 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     onTaskMutated?.();
   });
 
-  addBtn.addEventListener("click", () => {
-    if (!formNode.hidden) {
-      closePopover();
-      return;
-    }
-    openPopover({ mode: "root", parentId: null, dependsOn: null, insertAfterId: null });
+  bucketAddNodes.forEach((button) => {
+    button.addEventListener("click", () => {
+      const bucket = normalizeBucket(button.dataset.bucketAdd || "today");
+      expandBucket(bucket);
+      if (creationPanelNode.classList.contains("is-open") && createContext.mode === "root" && createContext.bucket === bucket) {
+        closePopover();
+        return;
+      }
+      openPopover({ mode: "root", parentId: null, dependsOn: null, insertAfterId: null, bucket });
+    });
+  });
+
+  bucketToggleNodes.forEach((button) => {
+    button.addEventListener("click", () => {
+      const bucket = normalizeBucket(button.dataset.bucketToggle || "today");
+      const currentlyExpanded = !collapsedBuckets.get(bucket);
+      setBucketExpanded(bucket, !currentlyExpanded);
+    });
   });
 
   document.addEventListener("click", (event) => {
-    if (formNode.hidden) return;
-    if (formNode.contains(event.target) || addBtn.contains(event.target)) return;
+    if (!creationPanelNode.classList.contains("is-open")) return;
+    if (creationPanelNode.contains(event.target)) return;
+    const clickPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+    const clickedBucketAdd = clickPath.some(
+      (node) => node instanceof HTMLElement && node.hasAttribute("data-bucket-add"),
+    );
+    if (clickedBucketAdd) return;
+    const clickedTaskAction = clickPath.some(
+      (node) => node instanceof HTMLElement && (node.getAttribute("aria-label") === "Add sub-task" || node.getAttribute("aria-label") === "Add sequential task"),
+    );
+    if (clickedTaskAction) return;
     closePopover();
   });
 
@@ -472,10 +641,10 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     editModal.close();
   });
 
-  toggleTimelineBtn.addEventListener("click", () => {
+  toggleAllocationBtn.addEventListener("click", () => {
     showTimeline = !showTimeline;
-    toggleTimelineBtn.textContent = showTimeline ? "Hide Timeline" : "Show Timeline";
-    renderTimeline();
+    toggleAllocationBtn.textContent = showTimeline ? "Hide" : "Show";
+    renderAllocationBar();
   });
 
   async function refresh() {
@@ -483,26 +652,14 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
     render();
   }
 
-  function getCurrentTasks() {
-    return tasks.map((task) => ({ ...task }));
-  }
-
-  async function appendTasksFromTemplate(templateTasks, templateId) {
-    for (const templateTask of templateTasks) {
-      await insertTask(
-        {
-          title: templateTask.title,
-          priority: templateTask.priority || "medium",
-          estimatedMin: templateTask.estimatedMin || 0,
-          notes: templateTask.notes || "",
-          link: templateTask.link || "",
-          type: templateTask.type || "standard",
-          templateId,
-        },
-        { parentId: null, dependsOn: null, insertAfterId: null },
-      );
-    }
-    await refresh();
+  function isFieldFocused() {
+    const tag = document.activeElement?.tagName ?? "";
+    return (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      document.activeElement?.isContentEditable
+    );
   }
 
   function bindShortcuts() {
@@ -512,29 +669,47 @@ export function createTasksModule({ dateKey, onTaskMutated }) {
           editModal.close();
           editingTaskId = null;
         }
-        if (!formNode.hidden) closePopover();
+        if (creationPanelNode.classList.contains("is-open")) closePopover();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        if (isFieldFocused()) return;
         const undo = undoStack.pop();
         if (undo) updateTask(undo.id, undo.snapshot).then(() => refresh());
       }
       if (event.key.toLowerCase() === "n" && !event.metaKey && !event.ctrlKey) {
-        const tag = event.target instanceof HTMLElement ? event.target.tagName : "";
-        if (tag !== "INPUT" && tag !== "TEXTAREA") {
+        if (!isFieldFocused()) {
           event.preventDefault();
-          openPopover({ mode: "root", parentId: null, dependsOn: null, insertAfterId: null });
+          openBucketComposer("today");
         }
       }
-      if (event.key.toLowerCase() === "t" && !event.metaKey && !event.ctrlKey) window.location.href = "./tasks.html";
-      if (event.key.toLowerCase() === "f" && !event.metaKey && !event.ctrlKey) window.location.href = "./focus.html";
-      if (event.key.toLowerCase() === "c" && !event.metaKey && !event.ctrlKey) window.location.href = "./calendar.html";
+      if (event.key.toLowerCase() === "t" && !event.metaKey && !event.ctrlKey) {
+        if (!isFieldFocused()) window.location.href = "./tasks.html";
+      }
+      if (event.key.toLowerCase() === "f" && !event.metaKey && !event.ctrlKey) {
+        if (!isFieldFocused()) window.location.href = "./focus.html";
+      }
+      if (event.key.toLowerCase() === "c" && !event.metaKey && !event.ctrlKey) {
+        if (!isFieldFocused()) window.location.href = "./calendar.html";
+      }
+    });
+  }
+
+  function openBucketComposer(bucket) {
+    const normalized = normalizeBucket(bucket);
+    expandBucket(normalized);
+    openPopover({
+      mode: "root",
+      parentId: null,
+      dependsOn: null,
+      insertAfterId: null,
+      bucket: normalized,
     });
   }
 
   return {
     refresh,
     bindShortcuts,
-    getCurrentTasks,
-    appendTasksFromTemplate,
+    expandBucket,
+    openBucketComposer,
   };
 }

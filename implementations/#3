@@ -1,0 +1,34 @@
+improve UX of Task Queue, user flow
+
+rename nav-bar
+```
+today > rename into tasks
+focus
+calendar
+settings > this should be turned into a cog button
+```
+
+
+tasks.html >> set this to index.html
+```
+in one card
+------
+# Today             [+]
+    - task 1
+    - task 2
+    - task 3
+
+# Tomorrow          [+]
+# Upcoming          [+]
+------
+
+each task card should have one interative circle button on the left that fills in when a task is deemed accomplished
+sub-task's circle should be indented in line with the parent-task title starts
+sequential tasks is only applicable to same-level siblings, there should be a 
+
+
+Next day planning is a feature "Tommorow Starts Tonight." that will pop up on a set time configurated in the settings. It will automatically popup
+but you can de-hover it. it shares the same ui and logic as filling in the tomorrow section in tasks
+
+remove the templates ui and functionalities
+```

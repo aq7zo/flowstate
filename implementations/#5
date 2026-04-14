@@ -1,0 +1,150 @@
+
+
+---
+
+
+
+> You are a frontend developer working on a dark-themed productivity web app built with plain HTML, CSS, and JavaScript. Below are the app's design tokens, base styles, and component patterns. Your job is to build a **dashboard widget row** containing two side-by-side widgets — a **date/time widget** and a **weather widget** (with two slides) — that visually integrates with this app's existing style. This is to replace the space being occupied by "Tomorrow Starts Tonight." remove the header and replace it with this new implementation.
+>
+> ---
+>
+> **Design tokens:**
+> ```css
+> :root {
+>   color-scheme: dark;
+>   --bg-base: #0a0a0c;
+>   --bg-surface: #111118;
+>   --bg-raised: #1a1a26;
+>   --accent-primary: #7c6ef7;
+>   --accent-warm: #f5a623;
+>   --accent-cool: #3dd9c5;
+>   --text-primary: #f0eff8;
+>   --text-secondary: #7b7a96;
+>   --text-faint: #3d3c52;
+>   --border: rgba(124, 110, 247, 0.15);
+>   --radius-md: 12px;
+>   --radius-lg: 16px;
+>   --shadow-soft: 0 18px 32px rgba(0, 0, 0, 0.35);
+> }
+> ```
+>
+> **Component rules (from components.css):**
+> - Cards use `.panel`: `background: var(--bg-surface)`, `border: 1px solid var(--border)`, `border-radius: var(--radius-lg)`, `box-shadow: var(--shadow-soft)`, `padding: 1rem`
+> - Secondary text: `color: var(--text-secondary)`
+> - Raised surfaces: `background: var(--bg-raised)`
+> - All borders use `var(--border)` (purple-tinted at 15% opacity)
+>
+> **Typography (from base.css):**
+> - Body font: `"DM Sans", sans-serif`
+> - Heading font: `"Fraunces", serif`
+> - Primary text: `var(--text-primary)` (`#f0eff8`)
+>
+> ---
+>
+> **Layout:**
+>
+> Render both widgets in a flex row with `gap: 12px`. Each widget is a `.panel` card with `flex: 1`. They should be equal width and sit side by side. On screens below 540px, stack them vertically.
+>
+> ```html
+> <div class="widgets-row">
+>   <!-- Widget 1: Date/Time -->
+>   <!-- Widget 2: Weather -->
+> </div>
+> ```
+> ```css
+> .widgets-row {
+>   display: flex;
+>   gap: 12px;
+>   flex-wrap: wrap;
+> }
+> .widgets-row .panel {
+>   flex: 1;
+>   min-width: 240px;
+>   position: relative;
+> }
+> ```
+>
+> ---
+>
+> **Widget 1 — Date & Time:**
+>
+> A `.panel` card with a small muted label "Date" in the top-left and a `···` menu indicator in the top-right (purely decorative, `color: var(--text-faint)`).
+>
+> Content (left side):
+> - Day name (e.g. "Tuesday") — `var(--text-secondary)`, `font-size: 1rem`
+> - Full date (e.g. "April 14, 2026") — `"Fraunces"` serif, `var(--text-primary)`, `font-size: 1.4rem`, `font-weight: 500`
+> - Week number (e.g. "Week 15") — `var(--text-faint)`, `font-size: 0.75rem`
+> - Current time (e.g. "5:27 PM") — `var(--text-secondary)`, `font-size: 1rem`, live-updating every second via `setInterval`
+>
+> Content (right side) — absolutely positioned calendar dot grid:
+> - A 7-column grid of small dots representing the current month
+> - Each dot is `8px × 8px`, `border-radius: 50%`
+> - **Past days:** filled, `background: var(--text-faint)`
+> - **Today:** filled circle with `background: var(--accent-primary)` and a `2px solid var(--text-primary)` ring, sized `8px`
+> - **Future days:** hollow, `border: 1.5px solid var(--text-faint)`, transparent background
+> - **Empty cells** (before the 1st of the month): transparent, no border
+> - Generate the dot grid dynamically in JS using the current date — determine the weekday offset of the 1st, total days in the month, and today's date number to assign the correct state to each dot
+>
+> All date/time values must be derived dynamically from `new Date()` in JavaScript — nothing hardcoded.
+>
+> ---
+>
+> **Widget 2 — Weather (two slides):**
+>
+> A `.panel` card with a small muted label "Weather" in the top-left and a `···` menu indicator in the top-right (`color: var(--text-faint)`). Contains two slides toggled by pagination dots.
+>
+> **Slide 1 — Current conditions:**
+> - City name — `"Fraunces"` serif, `var(--text-primary)`, `font-size: 1.2rem`, `font-weight: 500`
+> - Date line (e.g. "Tuesday, April 14") — `var(--text-secondary)`, `font-size: 0.75rem`
+> - Weather emoji icon (`font-size: 2.2rem`) + large temperature (`var(--text-primary)`, `font-size: 1.8rem`) side by side
+> - Three detail rows absolutely positioned top-right: Feels like, Rain (mm), Wind (m/s) — labels in `var(--text-secondary)`, values in `var(--text-primary)`, `font-size: 0.75rem`
+> - Footer: "Forecast from MET.no" left · pagination dots center · "Updated at [time]" right — all `var(--text-faint)`, `font-size: 0.7rem`, separated by `border-top: 1px solid var(--border)`
+>
+> **Slide 2 — 4-day forecast:**
+> - Four rows: Tomorrow, Thursday, Friday, Saturday
+> - Each row in a 5-column grid: day name · emoji · `low° / bold high°` (low in `var(--text-secondary)`, high bold in `var(--text-primary)`) · rainfall mm · wind m/s
+> - All values `font-size: 0.85rem`, `color: var(--text-secondary)` except high temp
+> - Same footer as Slide 1, second pagination dot active
+>
+> **Pagination dots:** Two `6px` circles. Active dot: `var(--accent-primary)`. Inactive: `var(--text-faint)`. Clicking switches slide with `display` toggle.
+>
+> ---
+>
+> **Live data — MET Norway API (api.met.no):**
+>
+> Fetch real weather data from the MET Norway Locationforecast API. It is **completely free, requires no API key, and allows commercial use** under a Creative Commons license.
+>
+> ```
+> GET https://api.met.no/weatherapi/locationforecast/2.0/compact?lat={LAT}&lon={LON}
+> ```
+>
+> ⚠️ You **must** set a custom `User-Agent` header — requests without it return `403 Forbidden`:
+> ```js
+> fetch(url, {
+>   headers: { "User-Agent": "YourAppName/1.0 your@email.com" }
+> })
+> ```
+>
+> From `data.properties.timeseries`:
+> - Current temp: `timeseries[0].data.instant.details.air_temperature`
+> - Wind speed (used for "Feels like" label): `timeseries[0].data.instant.details.wind_speed`
+> - Precipitation: `timeseries[0].data.next_1_hours.details.precipitation_amount`
+> - Weather symbol: `timeseries[0].data.next_1_hours.summary.symbol_code`
+> - For the 4-day forecast, filter one entry per future day closest to 12:00 noon and extract min/max temps across that day's entries, plus precipitation and wind
+>
+> Map `symbol_code` to emojis:
+> ```js
+> const symbolMap = {
+>   clearsky_day: "☀️", fair_day: "🌤️", partlycloudy_day: "⛅",
+>   cloudy: "☁️", rain: "🌧️", heavyrain: "⛈️", lightrain: "🌦️"
+> };
+> // default: "🌤️"
+> ```
+>
+> The user will manually set its location in the settings to pass them to the MET API. Show a loading state while fetching.
+>
+> ---
+>
+> **Output:** A single self-contained HTML snippet with all CSS in a `<style>` block and all JS in a `<script>` block. No external dependencies beyond the fonts `DM Sans` and `Fraunces` (already loaded by the app). The entire snippet drops directly into the app's `.app-main` layout area.
+
+---

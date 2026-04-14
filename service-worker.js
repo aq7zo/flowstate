@@ -1,4 +1,4 @@
-const CACHE_NAME = "flowstate-v2";
+const CACHE_NAME = "flowstate-v4";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -21,7 +21,6 @@ const CORE_ASSETS = [
   "./js/modules/pomodoro.js",
   "./js/modules/backup.js",
   "./js/modules/calendar.js",
-  "./js/modules/templates.js",
   "./js/modules/integrations.js",
   "./js/modules/settings.js",
   "./js/utils/dates.js",

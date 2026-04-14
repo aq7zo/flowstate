@@ -24,10 +24,10 @@
         <p class="brand" translate="no">flowstate<span class="brand-dot">.</span></p>
       </div>
       <nav class="top-nav" aria-label="Primary">
-        <a href="./tasks.html">Today</a>
+        <a href="./tasks.html">Tasks</a>
         <a href="./focus.html" data-active="true">Focus</a>
         <a href="./calendar.html">Calendar</a>
-        <a href="./settings.html">Settings</a>
+        <a href="./settings.html" class="top-nav-cog" aria-label="Settings">⚙</a>
       </nav>
     </header>
 
@@ -58,8 +58,30 @@
           </div>
 
           <div id="focus-settings-view" class="focus-view" hidden>
+            <div class="alarm-panel">
+              <h2>Pomodoro</h2>
+              <div class="form-grid">
+                <div class="field-row">
+                  <label for="pomo-work-min">Work (Minutes)</label>
+                  <input id="pomo-work-min" type="number" min="5" step="1" inputmode="numeric" />
+                </div>
+                <div class="field-row">
+                  <label for="pomo-short-break-min">Short Break</label>
+                  <input id="pomo-short-break-min" type="number" min="1" step="1" inputmode="numeric" />
+                </div>
+                <div class="field-row">
+                  <label for="pomo-long-break-min">Long Break</label>
+                  <input id="pomo-long-break-min" type="number" min="1" step="1" inputmode="numeric" />
+                </div>
+                <div class="field-row">
+                  <label for="pomo-sessions-before-long">Sessions Before Long</label>
+                  <input id="pomo-sessions-before-long" type="number" min="1" step="1" inputmode="numeric" />
+                </div>
+              </div>
+            </div>
+
             <form id="alarm-form" class="alarm-panel" aria-label="Alarm settings">
-              <h2>Timer Settings</h2>
+              <h2>Alarm</h2>
               <div class="field-row">
                 <label for="alarm-file">Upload Audio (mp3, wav, ogg)</label>
                 <input id="alarm-file" name="alarmFile" type="file" accept=".mp3,.wav,.ogg,audio/*" />

@@ -21,6 +21,10 @@ export function createPomodoroModule({ settings }) {
   const settingsBackBtn = document.querySelector("#focus-settings-back");
   const timerViewNode = document.querySelector("#focus-timer-view");
   const settingsViewNode = document.querySelector("#focus-settings-view");
+  const pomoWorkNode = document.querySelector("#pomo-work-min");
+  const pomoShortBreakNode = document.querySelector("#pomo-short-break-min");
+  const pomoLongBreakNode = document.querySelector("#pomo-long-break-min");
+  const pomoSessionsNode = document.querySelector("#pomo-sessions-before-long");
   const alarmForm = document.querySelector("#alarm-form");
   const alarmFileInput = document.querySelector("#alarm-file");
   const alarmTypeNode = document.querySelector("#alarm-type");
@@ -202,6 +206,29 @@ export function createPomodoroModule({ settings }) {
     });
   }
   if (resetBtn) resetBtn.addEventListener("click", reset);
+
+  if (pomoWorkNode) pomoWorkNode.value = String(mutableSettings.workMin || 25);
+  if (pomoShortBreakNode) pomoShortBreakNode.value = String(mutableSettings.shortBreakMin || 5);
+  if (pomoLongBreakNode) pomoLongBreakNode.value = String(mutableSettings.longBreakMin || 15);
+  if (pomoSessionsNode) pomoSessionsNode.value = String(mutableSettings.sessionsBeforeLong || 4);
+
+  async function savePomoSettings() {
+    mutableSettings = await patchSettings({
+      workMin: Math.max(1, Number(pomoWorkNode?.value) || 25),
+      shortBreakMin: Math.max(1, Number(pomoShortBreakNode?.value) || 5),
+      longBreakMin: Math.max(1, Number(pomoLongBreakNode?.value) || 15),
+      sessionsBeforeLong: Math.max(1, Number(pomoSessionsNode?.value) || 4),
+    });
+    if (phase === "IDLE") {
+      secondsLeft = mutableSettings.workMin * 60;
+      updateUi();
+    }
+    syncPanelMinHeightToSettings();
+  }
+
+  [pomoWorkNode, pomoShortBreakNode, pomoLongBreakNode, pomoSessionsNode].forEach((node) => {
+    if (node) node.addEventListener("change", savePomoSettings);
+  });
 
   if (alarmVolumeInput) alarmVolumeInput.value = String(settings.alarmVolume);
   if (alarmFadeInput) alarmFadeInput.checked = Boolean(settings.alarmFade);

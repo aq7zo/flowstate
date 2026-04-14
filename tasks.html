@@ -26,41 +26,68 @@
         <p class="brand" translate="no">flowstate<span class="brand-dot">.</span></p>
       </div>
       <nav class="top-nav" aria-label="Primary">
-        <a href="./tasks.html" data-active="true">Today</a>
+        <a href="./tasks.html" data-active="true">Tasks</a>
         <a href="./focus.html">Focus</a>
         <a href="./calendar.html">Calendar</a>
-        <a href="./settings.html">Settings</a>
+        <a href="./settings.html" class="top-nav-cog" aria-label="Settings">⚙</a>
       </nav>
     </header>
 
     <main id="main-content" class="app-main">
       <section class="view">
-        <div class="section-head">
-          <div>
-            <h1>Tomorrow Starts Tonight.</h1>
-            <p id="today-date-label" class="muted"></p>
-          </div>
-          <div class="head-actions">
-            <button id="save-template-btn" type="button" class="btn btn-secondary">Save as Template</button>
-            <button id="apply-template-btn" type="button" class="btn btn-ghost">Apply Template</button>
-          </div>
-        </div>
+        <div id="widgets-container"></div>
 
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Task Queue</h2>
-            <p id="task-summary" class="mono muted" aria-live="polite"></p>
-          </div>
-          <article class="queue-create-card">
-            <div>
-              <p class="mono muted">Quick Capture</p>
-              <p>Create a task, then shape its sub-tree & sequence.</p>
+        <div class="task-panels-layout">
+          <section class="panel task-main-panel">
+            <div class="panel-head">
+              <p id="task-summary" class="mono muted" aria-live="polite"></p>
             </div>
-            <button id="task-queue-add-btn" type="button" class="btn btn-primary" aria-expanded="false" aria-controls="task-form">+</button>
-            <form id="task-form" class="task-form-popover" aria-label="Create task" hidden>
+            <p id="planning-warning" class="planning-warning mono muted" aria-live="polite"></p>
+            <p id="task-inline-feedback" class="planning-warning mono" aria-live="polite"></p>
+
+            <div class="task-workspace">
+              <div id="task-buckets" class="task-buckets">
+                <section class="task-bucket-card" data-bucket="today">
+                  <div class="task-bucket-head">
+                    <button type="button" class="bucket-toggle" data-bucket-toggle="today" aria-expanded="true">Today</button>
+                    <div class="bucket-tools">
+                      <span class="bucket-count mono" data-bucket-count="today" hidden>0</span>
+                      <button type="button" class="icon-btn bucket-add-btn" data-bucket-add="today" aria-label="Add task to Today">+</button>
+                    </div>
+                  </div>
+                  <ul id="task-list-today" class="task-list" aria-live="polite"></ul>
+                </section>
+
+                <section class="task-bucket-card" data-bucket="tomorrow">
+                  <div class="task-bucket-head">
+                    <button type="button" class="bucket-toggle" data-bucket-toggle="tomorrow" aria-expanded="false">Tomorrow</button>
+                    <div class="bucket-tools">
+                      <span class="bucket-count mono" data-bucket-count="tomorrow" hidden>0</span>
+                      <button type="button" class="icon-btn bucket-add-btn" data-bucket-add="tomorrow" aria-label="Add task to Tomorrow">+</button>
+                    </div>
+                  </div>
+                  <ul id="task-list-tomorrow" class="task-list" aria-live="polite" hidden></ul>
+                </section>
+
+                <section class="task-bucket-card" data-bucket="upcoming">
+                  <div class="task-bucket-head">
+                    <button type="button" class="bucket-toggle" data-bucket-toggle="upcoming" aria-expanded="false">Upcoming</button>
+                    <div class="bucket-tools">
+                      <span class="bucket-count mono" data-bucket-count="upcoming" hidden>0</span>
+                      <button type="button" class="icon-btn bucket-add-btn" data-bucket-add="upcoming" aria-label="Add task to Upcoming">+</button>
+                    </div>
+                  </div>
+                  <ul id="task-list-upcoming" class="task-list" aria-live="polite" hidden></ul>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <aside class="creation-panel">
+            <form id="task-form" class="task-form" aria-label="Create task">
               <div class="field-row">
                 <label for="task-title">Task Title</label>
-                <input id="task-title" name="taskTitle" type="text" maxlength="120" required autocomplete="off" placeholder="Write lab report…" />
+                <input id="task-title" name="taskTitle" type="text" maxlength="120" required autocomplete="off" placeholder="Write lab report..." />
               </div>
               <div class="form-grid">
                 <div class="field-row">
@@ -78,29 +105,33 @@
               </div>
               <div class="field-row">
                 <label for="task-notes">Notes</label>
-                <textarea id="task-notes" name="taskNotes" maxlength="500" rows="3" placeholder="Add context for this task…"></textarea>
+                <textarea id="task-notes" name="taskNotes" maxlength="500" rows="3" placeholder="Add context for this task..."></textarea>
               </div>
               <div class="field-row">
                 <label for="task-link">Reference Link</label>
-                <input id="task-link" name="taskLink" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.com/…" />
+                <input id="task-link" name="taskLink" type="url" inputmode="url" autocomplete="off" placeholder="https://canvas.example.com/..." />
               </div>
               <div class="task-form-actions">
                 <button type="submit" class="btn btn-primary">Add Task</button>
               </div>
             </form>
-          </article>
-          <p id="planning-warning" class="planning-warning mono muted" aria-live="polite"></p>
-          <p id="task-inline-feedback" class="planning-warning mono" aria-live="polite"></p>
-          <ul id="task-list" class="task-list" aria-live="polite"></ul>
-          <p id="task-empty-state" class="empty-state">No tasks yet. Add your first one above.</p>
-        </section>
+          </aside>
+        </div>
 
-        <section class="panel">
+        <section id="allocation-section" class="panel">
           <div class="panel-head">
-            <h2>Time Blocking</h2>
-            <button id="toggle-timeline-btn" type="button" class="btn btn-ghost">Hide Timeline</button>
+            <h2>Day Allocation</h2>
+            <button id="toggle-allocation-btn" type="button" class="btn btn-ghost">Hide</button>
           </div>
-          <div id="timeline-view" class="timeline-view"></div>
+          <div id="allocation-view" class="allocation-view">
+            <div class="allocation-container">
+              <div id="allocation-bar" class="allocation-bar"></div>
+              <div id="allocation-quota-marker" class="allocation-quota-marker">
+                <span id="allocation-quota-label" class="allocation-quota-label"></span>
+              </div>
+            </div>
+            <p id="allocation-legend" class="allocation-legend mono muted"></p>
+          </div>
         </section>
       </section>
     </main>
@@ -123,7 +154,7 @@
         <h2>Edit Task</h2>
         <div class="field-row">
           <label for="task-edit-title">Task Title</label>
-          <input id="task-edit-title" name="taskEditTitle" type="text" maxlength="120" required autocomplete="off" placeholder="Refine your task…" />
+          <input id="task-edit-title" name="taskEditTitle" type="text" maxlength="120" required autocomplete="off" placeholder="Refine your task..." />
         </div>
         <div class="form-grid">
           <div class="field-row">
@@ -141,11 +172,11 @@
         </div>
         <div class="field-row">
           <label for="task-edit-notes">Notes</label>
-          <textarea id="task-edit-notes" rows="3" maxlength="500" placeholder="Add context…"></textarea>
+          <textarea id="task-edit-notes" rows="3" maxlength="500" placeholder="Add context..."></textarea>
         </div>
         <div class="field-row">
           <label for="task-edit-link">Reference Link</label>
-          <input id="task-edit-link" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/…" />
+          <input id="task-edit-link" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/..." />
         </div>
         <div class="modal-actions">
           <button type="submit" class="btn btn-primary">Save Task</button>
@@ -154,30 +185,14 @@
       </form>
     </dialog>
 
-    <dialog id="template-modal" class="modal">
-      <form id="template-form" class="modal-content">
-        <h2>Templates</h2>
-        <div class="field-row">
-          <label for="template-name">Template Name</label>
-          <input id="template-name" type="text" maxlength="50" autocomplete="off" placeholder="Monday School Day" />
-        </div>
+    <dialog id="tomorrow-planner-modal" class="modal">
+      <form method="dialog" class="modal-content">
+        <h2>Tomorrow Starts Tonight.</h2>
+        <p>It is time to plan tomorrow. Open the Tomorrow section and add tasks now?</p>
         <div class="modal-actions">
-          <button id="template-save-btn" type="button" class="btn btn-primary">Save Current Tasks</button>
-          <button id="template-close-btn" type="button" class="btn btn-ghost">Close</button>
-        </div>
-        <ul id="template-list" class="task-list"></ul>
-      </form>
-    </dialog>
-
-    <dialog id="template-preview-modal" class="modal">
-      <form id="template-preview-form" class="modal-content">
-        <h2>Template Preview</h2>
-        <p id="template-preview-copy" class="muted"></p>
-        <ul id="template-preview-list" class="task-list"></ul>
-        <div class="modal-actions">
-          <button id="template-apply-all-btn" type="button" class="btn btn-primary">Apply All</button>
-          <button id="template-apply-selected-btn" type="button" class="btn btn-secondary">Apply Selected</button>
-          <button id="template-preview-close-btn" type="button" class="btn btn-ghost">Close</button>
+          <button id="tomorrow-planner-open" type="button" class="btn btn-primary">Plan Tomorrow</button>
+          <button id="tomorrow-planner-snooze" type="button" class="btn btn-secondary">Snooze 15m</button>
+          <button id="tomorrow-planner-close" type="button" class="btn btn-ghost">Close</button>
         </div>
       </form>
     </dialog>

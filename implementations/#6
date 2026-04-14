@@ -1,0 +1,50 @@
+
+---
+
+## **Technical Blueprint: "Disk-Partition" Day Tracker**
+
+### **1. Core Concept**
+A horizontal "Allocation Bar" that treats a 24-hour day as a fixed-capacity drive. Users input **estimated minutes** for tasks (no start/end times). The bar populates these estimates as side-by-side "partitions" in **creation order**.
+
+### **2. Visual & State Logic**
+The bar’s appearance is determined by two thresholds: the **User Quota** (from Settings) and the **Hard Limit** (24 Hours).
+
+| State | Condition | Visual Indicator |
+| :--- | :--- | :--- |
+| **Healthy** | Total < Quota | Segments are a neutral/productive color (e.g., Blue or Green). |
+| **Over-Quota** | Total > Quota AND < 24h | The entire bar (or border) turns **Orange**. Display "Quota Exceeded" warning. |
+| **Impossible** | Total > 24h | The bar turns **Red**. The progress width extends beyond the container (max 110%). |
+
+### **3. UI Element Specifications**
+
+#### **The Container (The "Drive Path")**
+* **Dimensions:** Fixed width (e.g., `100%` or `600px`).
+* **Overflow Handling:** `overflow: visible`. This allows the "Impossible" state to bleed past the container edge up to 110% to show the "spillover" effect.
+* **Background:** A light gray "Unallocated" track representing the remaining time in a 24-hour period.
+
+#### **The Segments (The "Partitions")**
+* **Width Calculation:** Each task width is relative to 24 hours (1,440 minutes).
+  $$\text{Segment Width \%} = \left( \frac{\text{Task Estimate}}{1440} \right) \times 100$$
+* **Ordering:** Tasks are appended from left to right based on the time they were created.
+* **Non-Timed Tasks:** Tasks with 0 or null estimates are filtered out of the bar calculation.
+
+#### **The Quota Marker**
+* **Indicator:** A vertical dashed line or a subtle arrow anchored to the Quota value set in the program settings.
+* **Placement:** `(Quota Minutes / 1440) * 100`.
+
+### **4. Programmatic Logic & Settings**
+* **Input Hook:** Watch for changes in the `estimated_minutes` field of the task list.
+* **Settings Variable:** Reference `app.settings.daily_quota` (default to 8 hours if not set).
+* **Constraints:** * If `total_minutes > 1440`: Render bar at a maximum visual width of `110%`. 
+    * Any task pushing the total beyond the 24h mark should still render, but its right edge will be clipped or visually "hanging" outside the main UI track.
+
+### **5. User Feedback (Labels)**
+* **Dynamic Legend:** Show a text summary below the bar: *"Allocated: 10h 20m / 24h (Quota: 8h)"*.
+* **Color Context:** * **Green/Blue:** "Within capacity."
+    * **Orange:** "Exceeding your daily goal."
+    * **Red:** "Exceeding physical limits of a 24h day."
+
+---
+
+### **Summary of the "Impossible" Visual Effect**
+To achieve the "110% overflow" look mentioned in your requirements, the inner progress bar should have a width property that can exceed the `100%` of its parent container. This creates a powerful visual metaphor: your "to-do list" is literally too big for the day.
