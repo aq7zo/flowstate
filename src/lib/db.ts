@@ -78,6 +78,9 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   if (typeof raw.tag !== "string") {
     raw.tag = null;
   }
+  if (typeof raw.dueDate !== "string") {
+    raw.dueDate = null;
+  }
   return raw as unknown as Task;
 }
 
@@ -122,6 +125,7 @@ export async function createTask(taskInput: TaskInput): Promise<Task> {
   const payload: Task = {
     title: taskInput.title,
     date: taskInput.date,
+    dueDate: taskInput.dueDate ?? null,
     notes: taskInput.notes || "",
     links: taskInput.links ?? [],
     priority: taskInput.priority ?? "none",

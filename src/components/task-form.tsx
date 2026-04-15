@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import type { Priority, CustomTag } from "@/types";
+import type { Priority, CustomTag, Bucket } from "@/types";
 
 interface TaskFormProps {
   onSubmit: (data: {
@@ -24,15 +24,18 @@ interface TaskFormProps {
     estimatedMin: number;
     notes: string;
     links: string[];
+    dueDate: string | null;
   }) => void;
   defaultPriority?: Priority;
   customTags?: CustomTag[];
+  targetBucket?: Bucket;
 }
 
 export function TaskForm({
   onSubmit,
   defaultPriority = "none",
   customTags = [],
+  targetBucket = "today",
 }: TaskFormProps) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Priority>(defaultPriority);
@@ -40,6 +43,7 @@ export function TaskForm({
   const [estimated, setEstimated] = useState("");
   const [notes, setNotes] = useState("");
   const [links, setLinks] = useState<string[]>([""]);
+  const [dueDate, setDueDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   function handleLinkChange(index: number, value: string) {
     setLinks((prev) => {
@@ -63,6 +67,7 @@ export function TaskForm({
       estimatedMin: Math.max(0, Number(estimated) || 0),
       notes: notes.trim(),
       links: links.map((l) => l.trim()).filter(Boolean),
+      dueDate: targetBucket === "upcoming" ? dueDate : null,
     });
     setTitle("");
     setEstimated("");
@@ -70,6 +75,7 @@ export function TaskForm({
     setLinks([""]);
     setPriority(defaultPriority);
     setTag("none");
+    setDueDate(new Date().toISOString().slice(0, 10));
   }
 
   return (
@@ -131,6 +137,18 @@ export function TaskForm({
           />
         </div>
       </div>
+      {targetBucket === "upcoming" && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="task-due-date">Due Date</Label>
+          <Input
+            id="task-due-date"
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            required
+          />
+        </div>
+      )}
       <div className="grid gap-1.5">
         <Label htmlFor="task-notes">Notes</Label>
         <Textarea

@@ -18,6 +18,7 @@ export interface Task {
   id?: number;
   title: string;
   date: string;
+  dueDate?: string | null;
   notes: string;
   links: string[];
   priority: Priority;
@@ -37,6 +38,7 @@ export interface Task {
 export interface TaskInput {
   title: string;
   date: string;
+  dueDate?: string | null;
   notes?: string;
   links?: string[];
   priority?: Priority;

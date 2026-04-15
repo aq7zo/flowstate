@@ -57,6 +57,7 @@ import {
   getSettings,
   patchSettings,
   getTasksByDate,
+  getAllTasks,
   createTask,
   updateTask,
   deleteTask,
@@ -154,10 +155,30 @@ export default function TasksPage() {
       const s = await getSettings();
       setSettings(s);
       setReady(true);
+      const isNewDay = Boolean(
+        s.lastSessionDate && s.lastSessionDate !== todayKey.current
+      );
+      if (isNewDay) {
+        const allTasks = await getAllTasks();
+        const rolloverTargets = allTasks.filter((task) => {
+          const bucket = normalizeBucket(task.bucket);
+          if (bucket === "tomorrow") return true;
+          if (bucket !== "upcoming") return false;
+          return Boolean(task.dueDate && task.dueDate <= todayKey.current);
+        });
+        if (rolloverTargets.length > 0) {
+          await bulkUpdateTasks(
+            rolloverTargets.map((task) => ({
+              id: task.id!,
+              changes: { bucket: "today", date: todayKey.current },
+            }))
+          );
+        }
+      }
 
       await refresh();
 
-      if (s.lastSessionDate && s.lastSessionDate !== todayKey.current) {
+      if (isNewDay) {
         const yesterday = yesterdayKey(todayKey.current);
         const unfinished = await getUnfinishedTasksByDate(yesterday);
         const threshold = s.carryOverThreshold ?? 1;
@@ -233,6 +254,7 @@ export default function TasksPage() {
     estimatedMin: number;
     notes: string;
     links: string[];
+    dueDate: string | null;
   }) {
     const maxDepth = settings?.maxNestingDepth ?? 0;
     if (maxDepth > 0 && creationCtx.parentId) {
@@ -290,6 +312,7 @@ export default function TasksPage() {
       dependsOn: creationCtx.dependsOn,
       type: creationCtx.mode === "sequential" ? "sequential" : "standard",
       date: todayKey.current,
+      dueDate: bucket === "upcoming" ? data.dueDate : null,
     });
     await updateTask(created.id!, { order: targetOrder });
 
@@ -560,7 +583,7 @@ export default function TasksPage() {
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-auto border-none p-0 font-serif text-lg text-foreground"
+                          className="h-auto border-none px-2 py-0.5 font-serif text-lg text-foreground"
                         >
                           {BUCKET_LABEL[bucket]}{" "}
                           {isExpanded ? "[-]" : "[+]"}
@@ -650,6 +673,7 @@ export default function TasksPage() {
               onSubmit={handleCreateTask}
               defaultPriority={settings.defaultPriority}
               customTags={settings.customTags ?? []}
+              targetBucket={creationCtx.bucket}
             />
           </div>
         </DialogContent>

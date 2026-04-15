@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   DndContext,
   closestCenter,
@@ -318,6 +317,14 @@ function TaskBadges({
           {minutesToClock(task.estimatedMin)}
         </Badge>
       )}
+      {task.dueDate && (
+        <Badge
+          variant="outline"
+          className="mono text-[0.7rem] px-1.5 py-0 border-accent/30 bg-accent/10 text-accent"
+        >
+          due: {task.dueDate}
+        </Badge>
+      )}
       {parentTask && (
         <Badge
           variant="outline"
@@ -405,12 +412,19 @@ function TaskActions({
               }
               aria-label="Create sub-task"
             >
-              <Image
-                src={SubIcon}
-                alt=""
-                width={14}
-                height={14}
-                className="dark:invert"
+              <span
+                aria-hidden="true"
+                className="h-3.5 w-3.5 bg-current"
+                style={{
+                  WebkitMaskImage: `url(${SubIcon.src})`,
+                  maskImage: `url(${SubIcon.src})`,
+                  WebkitMaskRepeat: "no-repeat",
+                  maskRepeat: "no-repeat",
+                  WebkitMaskPosition: "center",
+                  maskPosition: "center",
+                  WebkitMaskSize: "contain",
+                  maskSize: "contain",
+                }}
               />
             </Button>
           </TooltipTrigger>
@@ -426,12 +440,19 @@ function TaskActions({
               onClick={() => cb.onAddSequential(task)}
               aria-label="Add next step"
             >
-              <Image
-                src={SeqIcon}
-                alt=""
-                width={14}
-                height={14}
-                className="dark:invert"
+              <span
+                aria-hidden="true"
+                className="h-3.5 w-3.5 bg-current"
+                style={{
+                  WebkitMaskImage: `url(${SeqIcon.src})`,
+                  maskImage: `url(${SeqIcon.src})`,
+                  WebkitMaskRepeat: "no-repeat",
+                  maskRepeat: "no-repeat",
+                  WebkitMaskPosition: "center",
+                  maskPosition: "center",
+                  WebkitMaskSize: "contain",
+                  maskSize: "contain",
+                }}
               />
             </Button>
           </TooltipTrigger>
