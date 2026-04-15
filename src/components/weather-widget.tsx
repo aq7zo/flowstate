@@ -23,8 +23,8 @@ interface WeatherWidgetProps {
 }
 
 export function WeatherWidget({ settings }: WeatherWidgetProps) {
-  const lat = settings.weatherLat;
-  const lon = settings.weatherLon;
+  const presetLat = settings.weatherLat;
+  const presetLon = settings.weatherLon;
   const city = settings.weatherCity || "Your City";
 
   const [slide, setSlide] = useState(0);
@@ -40,10 +40,30 @@ export function WeatherWidget({ settings }: WeatherWidgetProps) {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!lat || !lon) return;
+    let cancelled = false;
 
-    fetchWeather(lat, lon)
-      .then((data) => {
+    async function loadWeather() {
+      try {
+        setError(false);
+        let lat = presetLat;
+        let lon = presetLon;
+
+        // If lat/lon are not configured, resolve coordinates from city.
+        if ((lat == null || lon == null) && city.trim()) {
+          const geoRes = await fetch(
+            `/api/geocode?city=${encodeURIComponent(city.trim())}`
+          );
+          if (!geoRes.ok) throw new Error("Geocoding failed");
+          const geo = (await geoRes.json()) as { lat: number; lon: number };
+          lat = geo.lat;
+          lon = geo.lon;
+        }
+
+        if (lat == null || lon == null) return;
+
+        const data = await fetchWeather(lat, lon);
+        if (cancelled) return;
+
         const ts = data.properties.timeseries;
         if (!ts || ts.length === 0) return;
 
@@ -67,22 +87,28 @@ export function WeatherWidget({ settings }: WeatherWidgetProps) {
 
         setForecast(parseForecastDays(ts));
         setUpdatedAt(`Updated at ${formatTime(new Date())}`);
-      })
-      .catch(() => setError(true));
-  }, [lat, lon]);
+      } catch {
+        if (!cancelled) setError(true);
+      }
+    }
 
-  if (!lat || !lon) {
+    loadWeather();
+    return () => {
+      cancelled = true;
+    };
+  }, [presetLat, presetLon, city]);
+
+  if ((presetLat == null || presetLon == null) && !city.trim()) {
     return (
       <Card className="min-h-60 min-w-60 flex-1 bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
         <CardContent className="p-4">
-          <div className="mb-2.5 flex items-center justify-between">
+          <div className="mb-2.5">
             <span className="text-xs uppercase tracking-widest text-muted-foreground">
               Weather
             </span>
-            <span className="text-lg tracking-wider text-faint">···</span>
           </div>
           <p className="py-4 text-muted-foreground">
-            Set your location in{" "}
+            Set your city in{" "}
             <Link href="/settings" className="text-primary">
               Settings
             </Link>{" "}
@@ -102,11 +128,10 @@ export function WeatherWidget({ settings }: WeatherWidgetProps) {
   return (
     <Card className="min-h-60 min-w-60 flex-1 bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
       <CardContent className="grid h-full grid-rows-[auto_1fr_auto] p-4">
-        <div className="mb-2.5 flex items-center justify-between">
+        <div className="mb-2.5">
           <span className="text-xs uppercase tracking-widest text-muted-foreground">
             Weather
           </span>
-          <span className="text-lg tracking-wider text-faint">···</span>
         </div>
 
         <div className="min-h-[5.5rem]">

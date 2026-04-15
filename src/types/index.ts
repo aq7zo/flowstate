@@ -1,18 +1,27 @@
-export type Priority = "high" | "medium" | "low";
+export type Priority = "none" | "high" | "medium" | "low";
 export type TaskStatus = "pending" | "done" | "carried";
 export type TaskType = "standard" | "sequential";
 export type Bucket = "today" | "tomorrow" | "upcoming";
 export type PomodoroPhase = "IDLE" | "WORK" | "BREAK" | "LONG_BREAK";
 export type AlarmType = "file" | "youtube" | "none";
 export type ImportMode = "merge" | "replace";
+export type WeekStartDay =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
 
 export interface Task {
   id?: number;
   title: string;
   date: string;
   notes: string;
-  link: string;
+  links: string[];
   priority: Priority;
+  tag: string | null;
   estimatedMin: number;
   status: TaskStatus;
   type: TaskType;
@@ -29,8 +38,9 @@ export interface TaskInput {
   title: string;
   date: string;
   notes?: string;
-  link?: string;
+  links?: string[];
   priority?: Priority;
+  tag?: string | null;
   estimatedMin?: number;
   status?: TaskStatus;
   type?: TaskType;
@@ -118,6 +128,8 @@ export interface AppSettings {
   currentStreak?: number;
   longestStreak?: number;
   carryOverThreshold?: number;
+  maxNestingDepth?: number;
+  weekStartDay?: WeekStartDay;
 }
 
 export interface ExportSnapshot {

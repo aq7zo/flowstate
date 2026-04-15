@@ -14,28 +14,43 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import type { Priority } from "@/types";
+import type { Priority, CustomTag } from "@/types";
 
 interface TaskFormProps {
   onSubmit: (data: {
     title: string;
     priority: Priority;
+    tag: string | null;
     estimatedMin: number;
     notes: string;
-    link: string;
+    links: string[];
   }) => void;
   defaultPriority?: Priority;
+  customTags?: CustomTag[];
 }
 
 export function TaskForm({
   onSubmit,
-  defaultPriority = "medium",
+  defaultPriority = "none",
+  customTags = [],
 }: TaskFormProps) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Priority>(defaultPriority);
+  const [tag, setTag] = useState<string>("none");
   const [estimated, setEstimated] = useState("");
   const [notes, setNotes] = useState("");
-  const [link, setLink] = useState("");
+  const [links, setLinks] = useState<string[]>([""]);
+
+  function handleLinkChange(index: number, value: string) {
+    setLinks((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      if (index === next.length - 1 && value.length > 0) {
+        next.push("");
+      }
+      return next;
+    });
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,15 +59,17 @@ export function TaskForm({
     onSubmit({
       title: trimmed,
       priority,
+      tag: tag === "none" ? null : tag,
       estimatedMin: Math.max(0, Number(estimated) || 0),
       notes: notes.trim(),
-      link: link.trim(),
+      links: links.map((l) => l.trim()).filter(Boolean),
     });
     setTitle("");
     setEstimated("");
     setNotes("");
-    setLink("");
+    setLinks([""]);
     setPriority(defaultPriority);
+    setTag("none");
   }
 
   return (
@@ -69,7 +86,7 @@ export function TaskForm({
           placeholder="Write lab report..."
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="grid gap-1.5">
           <Label htmlFor="task-priority">Priority</Label>
           <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
@@ -77,9 +94,26 @@ export function TaskForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="none">No priority</SelectItem>
               <SelectItem value="high">High</SelectItem>
               <SelectItem value="medium">Medium</SelectItem>
               <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="task-tag">Tag</Label>
+          <Select value={tag} onValueChange={setTag}>
+            <SelectTrigger id="task-tag">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No tag</SelectItem>
+              {customTags.map((t) => (
+                <SelectItem key={t.name} value={t.name}>
+                  {t.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -109,15 +143,21 @@ export function TaskForm({
         />
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="task-link">Reference Link</Label>
-        <Input
-          id="task-link"
-          type="url"
-          inputMode="url"
-          value={link}
-          onChange={(e) => setLink(e.target.value)}
-          placeholder="https://canvas.example.com/..."
-        />
+        <Label>Reference Links</Label>
+        {links.map((link, i) => (
+          <Input
+            key={i}
+            type="url"
+            inputMode="url"
+            value={link}
+            onChange={(e) => handleLinkChange(i, e.target.value)}
+            placeholder={
+              i === 0
+                ? "https://canvas.example.com/..."
+                : "Add another link..."
+            }
+          />
+        ))}
       </div>
       <div>
         <Button type="submit">Add Task</Button>

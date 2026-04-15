@@ -2,6 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { restrictToParentElement } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -24,12 +31,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -44,9 +45,10 @@ import { AllocationBar } from "@/components/allocation-bar";
 import { TaskForm } from "@/components/task-form";
 import {
   TaskItem,
+  buildSiblingGroups,
   getChildren,
   getDescendantIds,
-  isLocked,
+  getLeaders,
 } from "@/components/task-item";
 
 import { cn } from "@/lib/utils";
@@ -71,8 +73,6 @@ const BUCKET_LABEL: Record<Bucket, string> = {
   tomorrow: "Tomorrow",
   upcoming: "Upcoming",
 };
-const MAX_DEPTH = 3;
-
 interface CreationContext {
   mode: "root" | "subtask" | "sequential";
   parentId: number | null;
@@ -95,6 +95,13 @@ function getDepth(taskId: number, tasks: Task[]): number {
   return depth;
 }
 
+function priorityBorderColor(priority: Priority): string {
+  if (priority === "high") return "hsl(var(--priority-high))";
+  if (priority === "low") return "hsl(var(--priority-low))";
+  if (priority === "medium") return "hsl(var(--priority-medium))";
+  return "hsl(var(--border))";
+}
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -111,10 +118,11 @@ export default function TasksPage() {
 
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [editPriority, setEditPriority] = useState<Priority>("medium");
+  const [editPriority, setEditPriority] = useState<Priority>("none");
+  const [editTag, setEditTag] = useState<string>("none");
   const [editEstimated, setEditEstimated] = useState("");
   const [editNotes, setEditNotes] = useState("");
-  const [editLink, setEditLink] = useState("");
+  const [editLinks, setEditLinks] = useState<string[]>([""]);
 
   const [carryoverOpen, setCarryoverOpen] = useState(false);
   const [carryoverTasks, setCarryoverTasks] = useState<Task[]>([]);
@@ -221,14 +229,16 @@ export default function TasksPage() {
   async function handleCreateTask(data: {
     title: string;
     priority: Priority;
+    tag: string | null;
     estimatedMin: number;
     notes: string;
-    link: string;
+    links: string[];
   }) {
-    if (creationCtx.parentId) {
+    const maxDepth = settings?.maxNestingDepth ?? 0;
+    if (maxDepth > 0 && creationCtx.parentId) {
       const parentDepth = getDepth(creationCtx.parentId, tasks);
-      if (parentDepth >= MAX_DEPTH) {
-        setFeedback(`Cannot nest deeper than ${MAX_DEPTH} levels.`);
+      if (parentDepth >= maxDepth) {
+        setFeedback(`Cannot nest deeper than ${maxDepth} levels.`);
         return;
       }
     }
@@ -240,12 +250,37 @@ export default function TasksPage() {
       parentTask?.bucket || creationCtx.bucket
     );
     const siblings = getChildren(tasks, creationCtx.parentId);
-    let targetOrder = siblings.length + 1;
-    if (creationCtx.insertAfterId) {
-      const idx = siblings.findIndex(
-        (t) => t.id === creationCtx.insertAfterId
+    let targetOrder: number;
+    if (
+      creationCtx.mode === "sequential" &&
+      creationCtx.dependsOn != null
+    ) {
+      const predId = creationCtx.dependsOn;
+      const hasParallelBranch = siblings.some(
+        (s) => s.type === "sequential" && s.dependsOn === predId
       );
-      if (idx >= 0) targetOrder = idx + 2;
+      if (hasParallelBranch) {
+        const maxOrder = siblings.reduce(
+          (m, s) => Math.max(m, s.order || 0),
+          0
+        );
+        targetOrder = maxOrder + 1;
+      } else if (creationCtx.insertAfterId) {
+        const idx = siblings.findIndex(
+          (t) => t.id === creationCtx.insertAfterId
+        );
+        targetOrder = idx >= 0 ? idx + 2 : siblings.length + 1;
+      } else {
+        targetOrder = siblings.length + 1;
+      }
+    } else {
+      targetOrder = siblings.length + 1;
+      if (creationCtx.insertAfterId) {
+        const idx = siblings.findIndex(
+          (t) => t.id === creationCtx.insertAfterId
+        );
+        if (idx >= 0) targetOrder = idx + 2;
+      }
     }
 
     const created = await createTask({
@@ -269,7 +304,6 @@ export default function TasksPage() {
   }
 
   async function handleToggleComplete(task: Task) {
-    if (isLocked(task, tasks)) return;
     const nextStatus = task.status === "done" ? "pending" : "done";
     const targetIds = [task.id!, ...getDescendantIds(task.id!, tasks)];
     const completedAt = nextStatus === "done" ? new Date() : null;
@@ -343,10 +377,17 @@ export default function TasksPage() {
   function openEditDialog(task: Task) {
     setEditingTask(task);
     setEditTitle(task.title);
-    setEditPriority(task.priority);
+    setEditPriority(
+      (["none", "high", "medium", "low"] as const).includes(task.priority)
+        ? task.priority
+        : "none"
+    );
     setEditEstimated(String(task.estimatedMin || 0));
+    setEditTag(task.tag ?? "none");
     setEditNotes(task.notes || "");
-    setEditLink(task.link || "");
+    const initial = task.links.length > 0 ? [...task.links] : [""];
+    if (initial[initial.length - 1] !== "") initial.push("");
+    setEditLinks(initial);
   }
 
   async function handleEditSubmit(e: React.FormEvent) {
@@ -357,9 +398,10 @@ export default function TasksPage() {
     await updateTask(editingTask.id!, {
       title: trimmed,
       priority: editPriority,
+      tag: editTag === "none" ? null : editTag,
       estimatedMin: Math.max(0, Number(editEstimated) || 0),
       notes: editNotes.trim(),
-      link: editLink.trim(),
+      links: editLinks.map((l) => l.trim()).filter(Boolean),
     });
     setEditingTask(null);
     await refresh();
@@ -369,6 +411,44 @@ export default function TasksPage() {
     const removeIds = [task.id!, ...getDescendantIds(task.id!, tasks)];
     for (const id of removeIds) await deleteTask(id);
     await refresh();
+  }
+
+  async function handleReorder(
+    parentId: number | null,
+    activeId: number,
+    overId: number
+  ) {
+    const siblings = getChildren(tasks, parentId);
+    const groups = buildSiblingGroups(siblings);
+
+    const leaderOf = (id: number) => {
+      for (const g of groups) {
+        if (g.some((t) => t.id === id)) return g[0].id!;
+      }
+      return id;
+    };
+    const activeLeader = leaderOf(activeId);
+    const overLeader = leaderOf(overId);
+
+    const oldIdx = groups.findIndex((g) => g[0].id === activeLeader);
+    const newIdx = groups.findIndex((g) => g[0].id === overLeader);
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    const reordered = arrayMove(groups, oldIdx, newIdx).flat();
+    await bulkUpdateTasks(
+      reordered.map((t, i) => ({ id: t.id!, changes: { order: i + 1 } }))
+    );
+    await refresh();
+  }
+
+  function handleRootDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeTask = tasks.find((t) => t.id === Number(active.id));
+    const overTask = tasks.find((t) => t.id === Number(over.id));
+    if (!activeTask || !overTask) return;
+    if ((activeTask.parentId ?? null) !== (overTask.parentId ?? null)) return;
+    handleReorder(activeTask.parentId ?? null, Number(active.id), Number(over.id));
   }
 
   async function carryoverAction(
@@ -404,6 +484,9 @@ export default function TasksPage() {
   }
 
   const quotaMinutes = settings.dailyQuota || 480;
+  const customTagColors = Object.fromEntries(
+    (settings.customTags ?? []).map((t) => [t.name, t.color])
+  ) as Record<string, string>;
   const totalDone = tasks.filter((t) => t.status === "done").length;
   const estimated = tasks.reduce(
     (sum, t) => sum + (Number(t.estimatedMin) || 0),
@@ -498,7 +581,7 @@ export default function TasksPage() {
                           size="icon"
                           className="h-8 w-8 text-muted-foreground"
                           onClick={() => openCreation(bucket)}
-                          aria-label={`Add task to ${BUCKET_LABEL[bucket]}`}
+                          aria-label={`Add task for ${BUCKET_LABEL[bucket]}`}
                         >
                           <Plus className="h-4 w-4" />
                         </Button>
@@ -510,23 +593,36 @@ export default function TasksPage() {
                           No tasks yet.
                         </p>
                       ) : (
-                        <ul className="grid list-none gap-2.5 p-0">
-                          {roots.map((task) => (
-                            <TaskItem
-                              key={task.id}
-                              task={task}
-                              allTasks={tasks}
-                              depth={0}
-                              collapsedBranches={collapsedBranches}
-                              onToggleComplete={handleToggleComplete}
-                              onToggleBranch={handleToggleBranch}
-                              onAddSubtask={handleAddSubtask}
-                              onAddSequential={handleAddSequential}
-                              onEdit={openEditDialog}
-                              onDelete={handleDeleteTask}
-                            />
-                          ))}
-                        </ul>
+                        <DndContext
+                          collisionDetection={closestCenter}
+                          modifiers={[restrictToParentElement]}
+                          onDragEnd={handleRootDragEnd}
+                        >
+                          <SortableContext
+                            items={getLeaders(roots).map((t) => t.id!)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            <ul className="relative grid list-none gap-2.5 overflow-hidden p-0">
+                              {getLeaders(roots).map((task) => (
+                                <TaskItem
+                                  key={task.id}
+                                  task={task}
+                                  allTasks={tasks}
+                                  customTagColors={customTagColors}
+                                  depth={0}
+                                  collapsedBranches={collapsedBranches}
+                                  onToggleComplete={handleToggleComplete}
+                                  onToggleBranch={handleToggleBranch}
+                                  onAddSubtask={handleAddSubtask}
+                                  onAddSequential={handleAddSequential}
+                                  onEdit={openEditDialog}
+                                  onDelete={handleDeleteTask}
+                                  onReorder={handleReorder}
+                                />
+                              ))}
+                            </ul>
+                          </SortableContext>
+                        </DndContext>
                       )}
                     </CollapsibleContent>
                   </div>
@@ -537,26 +633,27 @@ export default function TasksPage() {
         </CardContent>
       </Card>
 
-      {/* Creation Sheet */}
-      <Sheet open={creationOpen} onOpenChange={setCreationOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>
+      {/* Creation Dialog */}
+      <Dialog open={creationOpen} onOpenChange={setCreationOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
               {creationCtx.mode === "subtask"
                 ? "Add Sub-task"
                 : creationCtx.mode === "sequential"
                   ? "Add Sequential Task"
-                  : `Add Task to ${BUCKET_LABEL[creationCtx.bucket]}`}
-            </SheetTitle>
-          </SheetHeader>
+                  : `Add Task for ${BUCKET_LABEL[creationCtx.bucket]}`}
+            </DialogTitle>
+          </DialogHeader>
           <div className="mt-4">
             <TaskForm
               onSubmit={handleCreateTask}
               defaultPriority={settings.defaultPriority}
+              customTags={settings.customTags ?? []}
             />
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Day Allocation */}
       <Card className="bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
@@ -595,11 +692,8 @@ export default function TasksPage() {
                   style={{
                     borderLeftWidth: 3,
                     borderLeftColor:
-                      task.priority === "high"
-                        ? "hsl(var(--priority-high))"
-                        : task.priority === "low"
-                          ? "hsl(var(--priority-low))"
-                          : "hsl(var(--priority-medium))",
+                      (task.tag && customTagColors[task.tag]) ||
+                      priorityBorderColor(task.priority),
                   }}
                 >
                   <span>{task.title}</span>
@@ -676,7 +770,7 @@ export default function TasksPage() {
                 required
               />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="edit-priority">Priority</Label>
                 <Select
@@ -687,9 +781,26 @@ export default function TasksPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">No priority</SelectItem>
                     <SelectItem value="high">High</SelectItem>
                     <SelectItem value="medium">Medium</SelectItem>
                     <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="edit-tag">Tag</Label>
+                <Select value={editTag} onValueChange={setEditTag}>
+                  <SelectTrigger id="edit-tag">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No tag</SelectItem>
+                    {(settings.customTags ?? []).map((t) => (
+                      <SelectItem key={t.name} value={t.name}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -716,13 +827,29 @@ export default function TasksPage() {
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="edit-link">Reference Link</Label>
-              <Input
-                id="edit-link"
-                type="url"
-                value={editLink}
-                onChange={(e) => setEditLink(e.target.value)}
-              />
+              <Label>Reference Links</Label>
+              {editLinks.map((link, i) => (
+                <Input
+                  key={i}
+                  type="url"
+                  value={link}
+                  onChange={(e) => {
+                    setEditLinks((prev) => {
+                      const next = [...prev];
+                      next[i] = e.target.value;
+                      if (i === next.length - 1 && e.target.value.length > 0) {
+                        next.push("");
+                      }
+                      return next;
+                    });
+                  }}
+                  placeholder={
+                    i === 0
+                      ? "https://canvas.example.com/..."
+                      : "Add another link..."
+                  }
+                />
+              ))}
             </div>
             <DialogFooter>
               <Button type="submit">Save Task</Button>

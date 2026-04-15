@@ -16,7 +16,7 @@ import type {
 const DEFAULT_SETTINGS: AppSettings = {
   key: "app",
   lastSessionDate: null,
-  defaultPriority: "medium",
+  defaultPriority: "none",
   workMin: 25,
   shortBreakMin: 5,
   longBreakMin: 15,
@@ -26,10 +26,16 @@ const DEFAULT_SETTINGS: AppSettings = {
   alarmVolume: 0.8,
   alarmFade: false,
   streakCompletionThreshold: 80,
-  priorityColors: { high: "#f87171", medium: "#f5a623", low: "#4ade80" },
+  priorityColors: {
+    none: "#737373",
+    high: "#f87171",
+    medium: "#f5a623",
+    low: "#4ade80",
+  },
   dailyQuota: 480,
   tomorrowPromptTime: "20:30",
   tomorrowPromptEnabled: false,
+  weekStartDay: "monday",
 };
 
 class FlowstateDB extends Dexie {
@@ -62,6 +68,19 @@ function db(): FlowstateDB {
   return _db;
 }
 
+/** Normalise legacy records that stored a single `link` string. */
+function normalizeTask(raw: Record<string, unknown>): Task {
+  if (!Array.isArray(raw.links)) {
+    const legacy = typeof raw.link === "string" ? raw.link : "";
+    raw.links = legacy ? [legacy] : [];
+    delete raw.link;
+  }
+  if (typeof raw.tag !== "string") {
+    raw.tag = null;
+  }
+  return raw as unknown as Task;
+}
+
 export async function initDb() {
   const d = db();
   await d.open();
@@ -73,7 +92,15 @@ export async function initDb() {
 
 export async function getSettings(): Promise<AppSettings> {
   const settings = await db().settings.get("app");
-  return settings || { ...DEFAULT_SETTINGS };
+  const s = settings ?? DEFAULT_SETTINGS;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...s,
+    priorityColors: {
+      ...DEFAULT_SETTINGS.priorityColors,
+      ...s.priorityColors,
+    },
+  };
 }
 
 export async function patchSettings(
@@ -96,8 +123,9 @@ export async function createTask(taskInput: TaskInput): Promise<Task> {
     title: taskInput.title,
     date: taskInput.date,
     notes: taskInput.notes || "",
-    link: taskInput.link || "",
-    priority: taskInput.priority || "medium",
+    links: taskInput.links ?? [],
+    priority: taskInput.priority ?? "none",
+    tag: taskInput.tag ?? null,
     estimatedMin: taskInput.estimatedMin || 0,
     status: taskInput.status || "pending",
     type: taskInput.type || "standard",
@@ -114,16 +142,20 @@ export async function createTask(taskInput: TaskInput): Promise<Task> {
 }
 
 export async function getTasksByDate(date: string): Promise<Task[]> {
-  const tasks = await db().tasks.where("date").equals(date).toArray();
-  return tasks.sort((a, b) => (a.order || 0) - (b.order || 0));
+  const raw = await db().tasks.where("date").equals(date).toArray();
+  return raw
+    .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
 export async function getAllTasks(): Promise<Task[]> {
-  const tasks = await db().tasks.toArray();
-  return tasks.sort((a, b) => {
-    if (a.date === b.date) return (a.order || 0) - (b.order || 0);
-    return a.date.localeCompare(b.date);
-  });
+  const raw = await db().tasks.toArray();
+  return raw
+    .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+    .sort((a, b) => {
+      if (a.date === b.date) return (a.order || 0) - (b.order || 0);
+      return a.date.localeCompare(b.date);
+    });
 }
 
 export async function updateTask(
@@ -131,7 +163,9 @@ export async function updateTask(
   updates: Partial<Task>
 ): Promise<Task | undefined> {
   await db().tasks.update(id, updates);
-  return db().tasks.get(id);
+  const raw = await db().tasks.get(id);
+  if (!raw) return undefined;
+  return normalizeTask(raw as unknown as Record<string, unknown>);
 }
 
 export async function deleteTask(id: number): Promise<void> {
@@ -139,7 +173,9 @@ export async function deleteTask(id: number): Promise<void> {
 }
 
 export async function getTaskById(id: number): Promise<Task | undefined> {
-  return db().tasks.get(id);
+  const raw = await db().tasks.get(id);
+  if (!raw) return undefined;
+  return normalizeTask(raw as unknown as Record<string, unknown>);
 }
 
 export async function bulkUpdateTasks(
@@ -153,11 +189,12 @@ export async function bulkUpdateTasks(
 }
 
 export async function getUnfinishedTasksByDate(date: string): Promise<Task[]> {
-  return db()
+  const raw = await db()
     .tasks.where("date")
     .equals(date)
     .and((task) => task.status !== "done")
     .toArray();
+  return raw.map((t) => normalizeTask(t as unknown as Record<string, unknown>));
 }
 
 export async function addPomodoroLog(logInput: PomodoroLogInput): Promise<void> {
@@ -263,7 +300,7 @@ export async function getDailySummaryRange(
 
 export async function exportSnapshot(): Promise<ExportSnapshot> {
   const d = db();
-  const [tasks, templates, pomodoroLogs, calendarEvents, settings, dailySummary] =
+  const [rawTasks, templates, pomodoroLogs, calendarEvents, settings, dailySummary] =
     await Promise.all([
       d.tasks.toArray(),
       d.templates.toArray(),
@@ -272,6 +309,9 @@ export async function exportSnapshot(): Promise<ExportSnapshot> {
       getSettings(),
       d.dailySummary.toArray(),
     ]);
+  const tasks = rawTasks.map((t) =>
+    normalizeTask(t as unknown as Record<string, unknown>)
+  );
   return {
     exportedAt: new Date().toISOString(),
     version: "1.0",

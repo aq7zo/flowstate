@@ -30,77 +30,28 @@ import {
   initDb,
   getSettings,
   patchSettings,
-  replaceCalendarEventsBySource,
   exportSnapshot,
   importSnapshot,
   clearAllData,
 } from "@/lib/db";
-import { toDateKey } from "@/lib/dates";
 
-import type { AppSettings, Priority, CustomTag } from "@/types";
-
-async function deriveKey(passphrase: string): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: enc.encode("flowstate-canvas-salt"),
-      iterations: 100000,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encryptToken(token: string): Promise<string> {
-  if (!token) return "";
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey("flowstate-local-key");
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    new TextEncoder().encode(token)
-  );
-  const bytes = new Uint8Array(encrypted);
-  const payload = new Uint8Array(iv.length + bytes.length);
-  payload.set(iv, 0);
-  payload.set(bytes, iv.length);
-  return btoa(String.fromCharCode(...payload));
-}
-
-function parseIcsDate(input: string): string {
-  const value = input.replace("T", "");
-  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
-}
+import type { AppSettings, Priority, CustomTag, WeekStartDay } from "@/types";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [ready, setReady] = useState(false);
 
-  const [defaultPriority, setDefaultPriority] = useState<Priority>("medium");
+  const [defaultPriority, setDefaultPriority] = useState<Priority>("none");
   const [carryThreshold, setCarryThreshold] = useState("1");
+  const [maxNestingDepth, setMaxNestingDepth] = useState("0");
   const [dailyQuota, setDailyQuota] = useState("8");
   const [tomorrowPromptTime, setTomorrowPromptTime] = useState("20:30");
   const [tomorrowPromptEnabled, setTomorrowPromptEnabled] = useState(false);
+  const [weekStartDay, setWeekStartDay] = useState<WeekStartDay>("monday");
 
   const [weatherCity, setWeatherCity] = useState("");
   const [weatherLat, setWeatherLat] = useState("");
   const [weatherLon, setWeatherLon] = useState("");
-
-  const [canvasDomain, setCanvasDomain] = useState("");
-  const [canvasToken, setCanvasToken] = useState("");
-  const [unicalUrl, setUnicalUrl] = useState("");
-  const [integrationStatus, setIntegrationStatus] = useState("");
 
   const [tagName, setTagName] = useState("");
   const [tagColor, setTagColor] = useState("#3dd9c5");
@@ -118,16 +69,16 @@ export default function SettingsPage() {
       await initDb();
       const s = await getSettings();
       setSettings(s);
-      setDefaultPriority(s.defaultPriority || "medium");
+      setDefaultPriority(s.defaultPriority ?? "none");
       setCarryThreshold(String(s.carryOverThreshold || 1));
+      setMaxNestingDepth(String(s.maxNestingDepth ?? 0));
       setDailyQuota(String((s.dailyQuota || 480) / 60));
       setTomorrowPromptTime(s.tomorrowPromptTime || "20:30");
       setTomorrowPromptEnabled(Boolean(s.tomorrowPromptEnabled));
+      setWeekStartDay(s.weekStartDay ?? "monday");
       setWeatherCity(s.weatherCity || "");
       setWeatherLat(s.weatherLat != null ? String(s.weatherLat) : "");
       setWeatherLon(s.weatherLon != null ? String(s.weatherLon) : "");
-      setCanvasDomain(s.canvasDomain || "");
-      setUnicalUrl(s.uniCalendarUrl || "");
       setCustomTags(s.customTags || []);
       setReady(true);
     }
@@ -138,81 +89,16 @@ export default function SettingsPage() {
     const next = await patchSettings({
       defaultPriority,
       carryOverThreshold: Math.max(1, Number(carryThreshold) || 1),
+      maxNestingDepth: Math.max(0, Number(maxNestingDepth) || 0),
       dailyQuota: Math.max(60, Math.round((Number(dailyQuota) || 8) * 60)),
       tomorrowPromptTime: tomorrowPromptTime || "20:30",
       tomorrowPromptEnabled,
+      weekStartDay,
       weatherCity: weatherCity.trim(),
       weatherLat: weatherLat ? Number(weatherLat) : null,
       weatherLon: weatherLon ? Number(weatherLon) : null,
     });
     setSettings(next);
-  }
-
-  async function saveCanvasCredentials() {
-    const encrypted = await encryptToken(canvasToken.trim());
-    await patchSettings({
-      canvasDomain: canvasDomain.trim(),
-      canvasTokenEncrypted: encrypted,
-      uniCalendarUrl: unicalUrl.trim(),
-    });
-    setCanvasToken("");
-    setIntegrationStatus("Canvas credentials saved securely.");
-  }
-
-  async function syncCanvas() {
-    const s = await getSettings();
-    if (!s.canvasDomain || !s.canvasTokenEncrypted) {
-      setIntegrationStatus("Add Canvas credentials first.");
-      return;
-    }
-    const events = [
-      {
-        date: toDateKey(),
-        source: "canvas",
-        type: "assignment",
-        title: "Canvas sync placeholder",
-        dueAt: new Date().toISOString(),
-        url: s.canvasDomain,
-      },
-    ];
-    await replaceCalendarEventsBySource("canvas", events);
-    setIntegrationStatus("Canvas sync complete.");
-  }
-
-  async function syncUniCalendar() {
-    const feedUrl = unicalUrl.trim();
-    if (!feedUrl) {
-      setIntegrationStatus("Enter a UniCalendar feed URL.");
-      return;
-    }
-    try {
-      const response = await fetch(feedUrl);
-      const body = await response.text();
-      const chunks = body.split("BEGIN:VEVENT").slice(1);
-      const events = chunks
-        .map((chunk) => {
-          const summaryMatch = chunk.match(/SUMMARY:(.+)/);
-          const dateMatch = chunk.match(/DTSTART(?:;VALUE=DATE)?:([0-9T]+)/);
-          if (!summaryMatch || !dateMatch) return null;
-          return {
-            date: parseIcsDate(dateMatch[1]),
-            source: "unical",
-            type: "holiday",
-            title: summaryMatch[1].trim(),
-          };
-        })
-        .filter(Boolean);
-      await replaceCalendarEventsBySource(
-        "unical",
-        events as { date: string; source: string; type: string; title: string }[]
-      );
-      await patchSettings({ uniCalendarUrl: feedUrl });
-      setIntegrationStatus(
-        `UniCalendar sync complete (${events.length} events).`
-      );
-    } catch {
-      setIntegrationStatus("UniCalendar sync failed.");
-    }
   }
 
   async function addTag(e: React.FormEvent) {
@@ -309,7 +195,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               <Label htmlFor="s-priority">Default Task Priority</Label>
               <Select
                 value={defaultPriority}
@@ -322,24 +208,14 @@ export default function SettingsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">No priority</SelectItem>
                   <SelectItem value="high">High</SelectItem>
                   <SelectItem value="medium">Medium</SelectItem>
                   <SelectItem value="low">Low</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="s-carry">Carry-over Prompt Threshold</Label>
-              <Input
-                id="s-carry"
-                type="number"
-                min={1}
-                value={carryThreshold}
-                onChange={(e) => setCarryThreshold(e.target.value)}
-                onBlur={save}
-              />
-            </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               <Label htmlFor="s-quota">Daily Hour Quota</Label>
               <Input
                 id="s-quota"
@@ -353,7 +229,30 @@ export default function SettingsPage() {
                 placeholder="8"
               />
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
+              <Label htmlFor="s-carry">Carry-over Prompt Threshold</Label>
+              <Input
+                id="s-carry"
+                type="number"
+                min={1}
+                value={carryThreshold}
+                onChange={(e) => setCarryThreshold(e.target.value)}
+                onBlur={save}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="s-max-depth">Max Nesting Depth</Label>
+              <Input
+                id="s-max-depth"
+                type="number"
+                min={0}
+                value={maxNestingDepth}
+                onChange={(e) => setMaxNestingDepth(e.target.value)}
+                onBlur={save}
+                placeholder="0 = unlimited"
+              />
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="s-tomorrow-time">
                 Tomorrow Planning Prompt Time
               </Label>
@@ -364,6 +263,29 @@ export default function SettingsPage() {
                 onChange={(e) => setTomorrowPromptTime(e.target.value)}
                 onBlur={save}
               />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="s-week-start">Week Start Day</Label>
+              <Select
+                value={weekStartDay}
+                onValueChange={(v) => {
+                  setWeekStartDay(v as WeekStartDay);
+                  setTimeout(save, 0);
+                }}
+              >
+                <SelectTrigger id="s-week-start">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sunday">Sunday</SelectItem>
+                  <SelectItem value="monday">Monday</SelectItem>
+                  <SelectItem value="tuesday">Tuesday</SelectItem>
+                  <SelectItem value="wednesday">Wednesday</SelectItem>
+                  <SelectItem value="thursday">Thursday</SelectItem>
+                  <SelectItem value="friday">Friday</SelectItem>
+                  <SelectItem value="saturday">Saturday</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="col-span-full flex items-center gap-2">
               <Checkbox
@@ -389,11 +311,11 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           <p className="mb-2.5 text-sm text-muted-foreground">
-            Set your location to display live weather on the dashboard. Uses
-            the free MET Norway API.
+            Set your city to display live weather on the dashboard. City names
+            are geocoded via OpenStreetMap Nominatim, then forecast data is loaded from MET.no.
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               <Label htmlFor="s-city">City Name</Label>
               <Input
                 id="s-city"
@@ -402,8 +324,11 @@ export default function SettingsPage() {
                 onBlur={save}
                 placeholder="Oslo"
               />
+              <p className="text-[0.7rem] text-transparent" aria-hidden="true">
+                Optional override.
+              </p>
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               <Label htmlFor="s-lat">Latitude</Label>
               <Input
                 id="s-lat"
@@ -412,10 +337,13 @@ export default function SettingsPage() {
                 value={weatherLat}
                 onChange={(e) => setWeatherLat(e.target.value)}
                 onBlur={save}
-                placeholder="59.91"
+                placeholder="14.5995"
               />
+              <p className="text-[0.7rem] text-muted-foreground">
+                Optional override.
+              </p>
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid gap-2">
               <Label htmlFor="s-lon">Longitude</Label>
               <Input
                 id="s-lon"
@@ -424,69 +352,13 @@ export default function SettingsPage() {
                 value={weatherLon}
                 onChange={(e) => setWeatherLon(e.target.value)}
                 onBlur={save}
-                placeholder="10.75"
+                placeholder="120.9842"
               />
+              <p className="text-[0.7rem] text-muted-foreground">
+                Optional override.
+              </p>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Integrations */}
-      <Card className="bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
-        <CardHeader>
-          <CardTitle>Integrations</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="s-canvas-domain">Canvas Domain</Label>
-            <Input
-              id="s-canvas-domain"
-              type="url"
-              value={canvasDomain}
-              onChange={(e) => setCanvasDomain(e.target.value)}
-              placeholder="https://canvas.example.edu"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="s-canvas-token">Canvas Access Token</Label>
-            <Input
-              id="s-canvas-token"
-              type="password"
-              value={canvasToken}
-              onChange={(e) => setCanvasToken(e.target.value)}
-              placeholder="Paste personal access token…"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="s-unical">UniCalendar Feed URL</Label>
-            <Input
-              id="s-unical"
-              type="url"
-              value={unicalUrl}
-              onChange={(e) => setUnicalUrl(e.target.value)}
-              placeholder="https://calendar-feed.ics"
-            />
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={saveCanvasCredentials}
-            >
-              Save Canvas Credentials
-            </Button>
-            <Button type="button" onClick={syncCanvas}>
-              Sync Canvas
-            </Button>
-            <Button type="button" variant="ghost" onClick={syncUniCalendar}>
-              Sync UniCalendar
-            </Button>
-          </div>
-          {integrationStatus && (
-            <p className="mono text-sm text-muted-foreground">
-              {integrationStatus}
-            </p>
-          )}
         </CardContent>
       </Card>
 

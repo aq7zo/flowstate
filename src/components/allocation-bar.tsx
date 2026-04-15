@@ -52,7 +52,7 @@ export function AllocationBar({ tasks, quotaMinutes }: AllocationBarProps) {
         : "bg-accent/70";
 
   return (
-    <div className="grid gap-2.5">
+    <div className="grid gap-7">
       <div
         className={cn(
           "relative h-8 overflow-visible rounded-md border bg-muted transition-colors",

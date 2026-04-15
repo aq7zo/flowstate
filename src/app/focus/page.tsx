@@ -30,6 +30,26 @@ function formatClock(seconds: number): string {
   return `${mins}:${secs}`;
 }
 
+function getYoutubeVideoId(url: string): string | null {
+  const value = url.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname.includes("youtu.be")) {
+      return parsed.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+    if (parsed.hostname.includes("youtube.com")) {
+      if (parsed.pathname.startsWith("/shorts/")) {
+        return parsed.pathname.split("/")[2] ?? null;
+      }
+      return parsed.searchParams.get("v");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export default function FocusPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [ready, setReady] = useState(false);
@@ -96,6 +116,45 @@ export default function FocusPage() {
     }
   }, []);
 
+  const playYoutubeAlarm = useCallback(
+    (url: string, volume: number) => {
+      const videoId = getYoutubeVideoId(url);
+      if (!videoId) return false;
+
+      stopYoutube();
+      const frame = document.createElement("iframe");
+      frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&playsinline=1`;
+      frame.className = "invisible absolute";
+      frame.setAttribute("aria-hidden", "true");
+      document.body.append(frame);
+      youtubeRef.current = frame;
+
+      const level = Math.max(0, Math.min(100, Math.round(volume * 100)));
+      frame.addEventListener("load", () => {
+        const target = frame.contentWindow;
+        if (!target) return;
+        target.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "unMute",
+            args: [],
+          }),
+          "*"
+        );
+        target.postMessage(
+          JSON.stringify({
+            event: "command",
+            func: "setVolume",
+            args: [level],
+          }),
+          "*"
+        );
+      });
+      return true;
+    },
+    [stopYoutube]
+  );
+
   async function onPhaseComplete() {
     const s = settingsRef.current!;
     const currentPhase = phaseRef.current;
@@ -131,16 +190,7 @@ export default function FocusPage() {
     }
 
     if (s.alarmType === "youtube" && s.alarmUrl) {
-      const videoId = s.alarmUrl.split("v=")[1]?.split("&")[0];
-      if (videoId) {
-        stopYoutube();
-        const frame = document.createElement("iframe");
-        frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-        frame.className = "invisible absolute";
-        frame.setAttribute("aria-hidden", "true");
-        document.body.append(frame);
-        youtubeRef.current = frame;
-      }
+      playYoutubeAlarm(s.alarmUrl, s.alarmVolume);
     } else if (s.alarmType === "file" && s.alarmFile) {
       await playDataUrl(s.alarmFile, s.alarmVolume, s.alarmFade);
     }
@@ -242,18 +292,11 @@ export default function FocusPage() {
   async function previewAlarm() {
     const s = settingsRef.current!;
     if (alarmType === "youtube") {
-      const videoId = alarmYoutubeUrl.split("v=")[1]?.split("&")[0];
-      if (!videoId) {
+      const ok = playYoutubeAlarm(alarmYoutubeUrl, alarmVolume);
+      if (!ok) {
         setAlarmStatus("Add a valid YouTube URL first.");
         return;
       }
-      stopYoutube();
-      const frame = document.createElement("iframe");
-      frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
-      frame.className = "invisible absolute";
-      frame.setAttribute("aria-hidden", "true");
-      document.body.append(frame);
-      youtubeRef.current = frame;
       setAlarmStatus("YouTube preview playing…");
       return;
     }
@@ -413,17 +456,6 @@ export default function FocusPage() {
               <form onSubmit={saveAlarmSettings} className="grid gap-3">
                 <h2>Alarm</h2>
                 <div className="grid gap-1.5">
-                  <Label htmlFor="alarm-file">
-                    Upload Audio (mp3, wav, ogg)
-                  </Label>
-                  <Input
-                    id="alarm-file"
-                    type="file"
-                    accept=".mp3,.wav,.ogg,audio/*"
-                    onChange={handleAlarmFile}
-                  />
-                </div>
-                <div className="grid gap-1.5">
                   <Label htmlFor="alarm-type">Alarm Type</Label>
                   <Select
                     value={alarmType}
@@ -439,16 +471,31 @@ export default function FocusPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="alarm-youtube">YouTube URL</Label>
-                  <Input
-                    id="alarm-youtube"
-                    type="url"
-                    value={alarmYoutubeUrl}
-                    onChange={(e) => setAlarmYoutubeUrl(e.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                  />
-                </div>
+                {alarmType === "file" && (
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="alarm-file">
+                      Upload Audio (mp3, wav, ogg)
+                    </Label>
+                    <Input
+                      id="alarm-file"
+                      type="file"
+                      accept=".mp3,.wav,.ogg,audio/*"
+                      onChange={handleAlarmFile}
+                    />
+                  </div>
+                )}
+                {alarmType === "youtube" && (
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="alarm-youtube">YouTube URL</Label>
+                    <Input
+                      id="alarm-youtube"
+                      type="url"
+                      value={alarmYoutubeUrl}
+                      onChange={(e) => setAlarmYoutubeUrl(e.target.value)}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                    />
+                  </div>
+                )}
                 <div className="grid gap-1.5">
                   <Label>Volume: {Math.round(alarmVolume * 100)}%</Label>
                   <Slider
@@ -459,14 +506,16 @@ export default function FocusPage() {
                     step={0.05}
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="alarm-fade"
-                    checked={alarmFade}
-                    onCheckedChange={(v) => setAlarmFade(v === true)}
-                  />
-                  <Label htmlFor="alarm-fade">Fade in over 8 seconds</Label>
-                </div>
+                {alarmType === "file" && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="alarm-fade"
+                      checked={alarmFade}
+                      onCheckedChange={(v) => setAlarmFade(v === true)}
+                    />
+                    <Label htmlFor="alarm-fade">Fade in over 8 seconds</Label>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Button type="submit">Save Alarm</Button>
                   <Button
