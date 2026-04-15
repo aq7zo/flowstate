@@ -1,0 +1,790 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+
+import { Plus } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+import { DateWidget } from "@/components/date-widget";
+import { WeatherWidget } from "@/components/weather-widget";
+import { AllocationBar } from "@/components/allocation-bar";
+import { TaskForm } from "@/components/task-form";
+import {
+  TaskItem,
+  getChildren,
+  getDescendantIds,
+  isLocked,
+} from "@/components/task-item";
+
+import { cn } from "@/lib/utils";
+import {
+  initDb,
+  getSettings,
+  patchSettings,
+  getTasksByDate,
+  createTask,
+  updateTask,
+  deleteTask,
+  bulkUpdateTasks,
+  getUnfinishedTasksByDate,
+} from "@/lib/db";
+import { toDateKey, yesterdayKey, minutesToClock } from "@/lib/dates";
+
+import type { Task, AppSettings, Bucket, Priority } from "@/types";
+
+const BUCKETS: Bucket[] = ["today", "tomorrow", "upcoming"];
+const BUCKET_LABEL: Record<Bucket, string> = {
+  today: "Today",
+  tomorrow: "Tomorrow",
+  upcoming: "Upcoming",
+};
+const MAX_DEPTH = 3;
+
+interface CreationContext {
+  mode: "root" | "subtask" | "sequential";
+  parentId: number | null;
+  dependsOn: number | null;
+  insertAfterId: number | null;
+  bucket: Bucket;
+}
+
+function normalizeBucket(b: string | undefined): Bucket {
+  return BUCKETS.includes(b as Bucket) ? (b as Bucket) : "today";
+}
+
+function getDepth(taskId: number, tasks: Task[]): number {
+  let depth = 0;
+  let current = tasks.find((t) => t.id === taskId);
+  while (current?.parentId) {
+    depth++;
+    current = tasks.find((t) => t.id === current!.parentId);
+  }
+  return depth;
+}
+
+export default function TasksPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [ready, setReady] = useState(false);
+
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [creationCtx, setCreationCtx] = useState<CreationContext>({
+    mode: "root",
+    parentId: null,
+    dependsOn: null,
+    insertAfterId: null,
+    bucket: "today",
+  });
+
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editPriority, setEditPriority] = useState<Priority>("medium");
+  const [editEstimated, setEditEstimated] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editLink, setEditLink] = useState("");
+
+  const [carryoverOpen, setCarryoverOpen] = useState(false);
+  const [carryoverTasks, setCarryoverTasks] = useState<Task[]>([]);
+  const [tomorrowPlannerOpen, setTomorrowPlannerOpen] = useState(false);
+
+  const [expandedBuckets, setExpandedBuckets] = useState<Set<Bucket>>(
+    new Set(["today"])
+  );
+  const [collapsedBranches, setCollapsedBranches] = useState<Set<number>>(
+    new Set()
+  );
+  const [showAllocation, setShowAllocation] = useState(true);
+  const [feedback, setFeedback] = useState("");
+
+  const todayKey = useRef(toDateKey());
+  const tomorrowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoStackRef = useRef<
+    { id: number; snapshot: Partial<Task> }[]
+  >([]);
+
+  const refresh = useCallback(async () => {
+    const t = await getTasksByDate(todayKey.current);
+    setTasks(t);
+  }, []);
+
+  useEffect(() => {
+    async function init() {
+      await initDb();
+      const s = await getSettings();
+      setSettings(s);
+      setReady(true);
+
+      await refresh();
+
+      if (s.lastSessionDate && s.lastSessionDate !== todayKey.current) {
+        const yesterday = yesterdayKey(todayKey.current);
+        const unfinished = await getUnfinishedTasksByDate(yesterday);
+        const threshold = s.carryOverThreshold ?? 1;
+        if (unfinished.length >= threshold) {
+          setCarryoverTasks(unfinished);
+          setCarryoverOpen(true);
+        }
+      }
+      await patchSettings({ lastSessionDate: todayKey.current });
+
+      if (s.tomorrowPromptEnabled) {
+        const [h, m] = (s.tomorrowPromptTime || "20:30").split(":").map(Number);
+        if (!isNaN(h) && !isNaN(m)) {
+          const target = new Date();
+          target.setHours(h, m, 0, 0);
+          if (Date.now() < target.getTime()) {
+            tomorrowTimerRef.current = setTimeout(() => {
+              setTomorrowPlannerOpen(true);
+            }, target.getTime() - Date.now());
+          }
+        }
+      }
+    }
+    init();
+    return () => {
+      if (tomorrowTimerRef.current) clearTimeout(tomorrowTimerRef.current);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    function handleKeydown(e: KeyboardEvent) {
+      const tag = (document.activeElement?.tagName ?? "").toUpperCase();
+      const inField =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      if (e.key === "Escape") {
+        if (editingTask) setEditingTask(null);
+        if (creationOpen) setCreationOpen(false);
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !inField) {
+        const undo = undoStackRef.current.pop();
+        if (undo) {
+          updateTask(undo.id, undo.snapshot).then(() => refresh());
+        }
+      }
+
+      if (e.key.toLowerCase() === "n" && !e.metaKey && !e.ctrlKey && !inField) {
+        e.preventDefault();
+        openCreation("today");
+      }
+    }
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [creationOpen, editingTask, refresh]);
+
+  function openCreation(bucket: Bucket) {
+    setCreationCtx({
+      mode: "root",
+      parentId: null,
+      dependsOn: null,
+      insertAfterId: null,
+      bucket,
+    });
+    setCreationOpen(true);
+    setExpandedBuckets((prev) => new Set(prev).add(bucket));
+  }
+
+  async function handleCreateTask(data: {
+    title: string;
+    priority: Priority;
+    estimatedMin: number;
+    notes: string;
+    link: string;
+  }) {
+    if (creationCtx.parentId) {
+      const parentDepth = getDepth(creationCtx.parentId, tasks);
+      if (parentDepth >= MAX_DEPTH) {
+        setFeedback(`Cannot nest deeper than ${MAX_DEPTH} levels.`);
+        return;
+      }
+    }
+
+    const parentTask = creationCtx.parentId
+      ? tasks.find((t) => t.id === creationCtx.parentId)
+      : null;
+    const bucket = normalizeBucket(
+      parentTask?.bucket || creationCtx.bucket
+    );
+    const siblings = getChildren(tasks, creationCtx.parentId);
+    let targetOrder = siblings.length + 1;
+    if (creationCtx.insertAfterId) {
+      const idx = siblings.findIndex(
+        (t) => t.id === creationCtx.insertAfterId
+      );
+      if (idx >= 0) targetOrder = idx + 2;
+    }
+
+    const created = await createTask({
+      ...data,
+      parentId: creationCtx.parentId,
+      bucket,
+      dependsOn: creationCtx.dependsOn,
+      type: creationCtx.mode === "sequential" ? "sequential" : "standard",
+      date: todayKey.current,
+    });
+    await updateTask(created.id!, { order: targetOrder });
+
+    const shifted = siblings
+      .filter((t) => (t.order || 0) >= targetOrder)
+      .map((t) => ({ id: t.id!, changes: { order: (t.order || 0) + 1 } }));
+    if (shifted.length > 0) await bulkUpdateTasks(shifted);
+
+    if (creationCtx.mode !== "root") setCreationOpen(false);
+    setFeedback("");
+    await refresh();
+  }
+
+  async function handleToggleComplete(task: Task) {
+    if (isLocked(task, tasks)) return;
+    const nextStatus = task.status === "done" ? "pending" : "done";
+    const targetIds = [task.id!, ...getDescendantIds(task.id!, tasks)];
+    const completedAt = nextStatus === "done" ? new Date() : null;
+
+    undoStackRef.current.push({
+      id: task.id!,
+      snapshot: { status: task.status, completedAt: task.completedAt },
+    });
+    if (undoStackRef.current.length > 10) undoStackRef.current.shift();
+
+    await bulkUpdateTasks(
+      targetIds.map((id) => ({ id, changes: { status: nextStatus, completedAt } }))
+    );
+
+    let parentId = task.parentId;
+    while (parentId) {
+      const parent = tasks.find((t) => t.id === parentId);
+      if (!parent) break;
+      const descIds = getDescendantIds(parent.id!, tasks);
+      const updatedTasks = await getTasksByDate(todayKey.current);
+      const allDone =
+        descIds.length > 0 &&
+        descIds.every(
+          (id) => updatedTasks.find((t) => t.id === id)?.status === "done"
+        );
+      await updateTask(parent.id!, {
+        status: allDone ? "done" : "pending",
+        completedAt: allDone ? new Date() : null,
+      });
+      parentId = parent.parentId;
+    }
+
+    await refresh();
+  }
+
+  function handleToggleBranch(taskId: number) {
+    setCollapsedBranches((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function handleAddSubtask(parentId: number, bucket: Bucket) {
+    setCreationCtx({
+      mode: "subtask",
+      parentId,
+      dependsOn: null,
+      insertAfterId: null,
+      bucket: normalizeBucket(bucket),
+    });
+    setCreationOpen(true);
+    setExpandedBuckets((prev) => new Set(prev).add(normalizeBucket(bucket)));
+  }
+
+  function handleAddSequential(afterTask: Task) {
+    setCreationCtx({
+      mode: "sequential",
+      parentId: afterTask.parentId ?? null,
+      dependsOn: afterTask.id!,
+      insertAfterId: afterTask.id!,
+      bucket: normalizeBucket(afterTask.bucket),
+    });
+    setCreationOpen(true);
+    setExpandedBuckets((prev) =>
+      new Set(prev).add(normalizeBucket(afterTask.bucket))
+    );
+  }
+
+  function openEditDialog(task: Task) {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditPriority(task.priority);
+    setEditEstimated(String(task.estimatedMin || 0));
+    setEditNotes(task.notes || "");
+    setEditLink(task.link || "");
+  }
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingTask) return;
+    const trimmed = editTitle.trim();
+    if (!trimmed) return;
+    await updateTask(editingTask.id!, {
+      title: trimmed,
+      priority: editPriority,
+      estimatedMin: Math.max(0, Number(editEstimated) || 0),
+      notes: editNotes.trim(),
+      link: editLink.trim(),
+    });
+    setEditingTask(null);
+    await refresh();
+  }
+
+  async function handleDeleteTask(task: Task) {
+    const removeIds = [task.id!, ...getDescendantIds(task.id!, tasks)];
+    for (const id of removeIds) await deleteTask(id);
+    await refresh();
+  }
+
+  async function carryoverAction(
+    status: "pending" | "carried",
+    date: string | null,
+    taskIds?: number[]
+  ) {
+    const targets = taskIds
+      ? carryoverTasks.filter((t) => taskIds.includes(t.id!))
+      : carryoverTasks;
+    if (targets.length === 0) return;
+    await bulkUpdateTasks(
+      targets.map((t) => ({
+        id: t.id!,
+        changes: { status, date: date || t.date, completedAt: null },
+      }))
+    );
+    const remaining = carryoverTasks.filter(
+      (t) => !targets.some((tgt) => tgt.id === t.id)
+    );
+    setCarryoverTasks(remaining);
+    if (remaining.length === 0) setCarryoverOpen(false);
+    await refresh();
+  }
+
+  if (!ready || !settings) {
+    return (
+      <section className="grid gap-4">
+        <div className="h-60 animate-pulse rounded-lg bg-muted" />
+        <div className="h-96 animate-pulse rounded-lg bg-muted" />
+      </section>
+    );
+  }
+
+  const quotaMinutes = settings.dailyQuota || 480;
+  const totalDone = tasks.filter((t) => t.status === "done").length;
+  const estimated = tasks.reduce(
+    (sum, t) => sum + (Number(t.estimatedMin) || 0),
+    0
+  );
+  const overQuota = estimated > quotaMinutes;
+
+  return (
+    <section className="grid gap-4">
+      {/* Widgets */}
+      <div className="flex flex-wrap gap-3 max-[540px]:flex-col">
+        <DateWidget />
+        <WeatherWidget settings={settings} />
+      </div>
+
+      {/* Task Panel */}
+      <Card className="bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
+        <CardContent className="p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="mono text-muted-foreground">
+              {totalDone}/{tasks.length} completed
+            </p>
+          </div>
+
+          {overQuota && (
+            <Alert
+              variant="destructive"
+              className={cn(
+                "mb-3",
+                estimated > 1440
+                  ? "border-destructive/40 text-destructive"
+                  : "border-warning/35 text-warning"
+              )}
+            >
+              <AlertDescription className="mono">
+                You&apos;ve planned {minutesToClock(estimated)} against a{" "}
+                {minutesToClock(quotaMinutes)} quota.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {feedback && (
+            <Alert variant="destructive" className="mb-3">
+              <AlertDescription className="mono">{feedback}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid gap-3">
+            {BUCKETS.map((bucket) => {
+              const roots = getChildren(tasks, null).filter(
+                (t) => normalizeBucket(t.bucket) === bucket
+              );
+              const isExpanded = expandedBuckets.has(bucket);
+
+              return (
+                <Collapsible
+                  key={bucket}
+                  open={isExpanded}
+                  onOpenChange={(open) =>
+                    setExpandedBuckets((prev) => {
+                      const next = new Set(prev);
+                      if (open) next.add(bucket);
+                      else next.delete(bucket);
+                      return next;
+                    })
+                  }
+                >
+                  <div className="rounded-md border border-border bg-white/[0.015] p-3">
+                    <div className="mb-2 flex items-center justify-between gap-1.5">
+                      <CollapsibleTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-auto border-none p-0 font-serif text-lg text-foreground"
+                        >
+                          {BUCKET_LABEL[bucket]}{" "}
+                          {isExpanded ? "[-]" : "[+]"}
+                        </Button>
+                      </CollapsibleTrigger>
+                      <div className="flex items-center gap-1.5">
+                        {roots.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="mono min-w-7 justify-center bg-primary/20 text-primary"
+                          >
+                            {roots.length}
+                          </Badge>
+                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          onClick={() => openCreation(bucket)}
+                          aria-label={`Add task to ${BUCKET_LABEL[bucket]}`}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <CollapsibleContent>
+                      {roots.length === 0 ? (
+                        <p className="py-1 text-muted-foreground">
+                          No tasks yet.
+                        </p>
+                      ) : (
+                        <ul className="grid list-none gap-2.5 p-0">
+                          {roots.map((task) => (
+                            <TaskItem
+                              key={task.id}
+                              task={task}
+                              allTasks={tasks}
+                              depth={0}
+                              collapsedBranches={collapsedBranches}
+                              onToggleComplete={handleToggleComplete}
+                              onToggleBranch={handleToggleBranch}
+                              onAddSubtask={handleAddSubtask}
+                              onAddSequential={handleAddSequential}
+                              onEdit={openEditDialog}
+                              onDelete={handleDeleteTask}
+                            />
+                          ))}
+                        </ul>
+                      )}
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Creation Sheet */}
+      <Sheet open={creationOpen} onOpenChange={setCreationOpen}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>
+              {creationCtx.mode === "subtask"
+                ? "Add Sub-task"
+                : creationCtx.mode === "sequential"
+                  ? "Add Sequential Task"
+                  : `Add Task to ${BUCKET_LABEL[creationCtx.bucket]}`}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-4">
+            <TaskForm
+              onSubmit={handleCreateTask}
+              defaultPriority={settings.defaultPriority}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Day Allocation */}
+      <Card className="bg-gradient-to-b from-white/[0.02] to-transparent shadow-[var(--shadow-soft)]">
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle>Day Allocation</CardTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setShowAllocation((prev) => !prev)}
+          >
+            {showAllocation ? "Hide" : "Show"}
+          </Button>
+        </CardHeader>
+        {showAllocation && (
+          <CardContent>
+            <AllocationBar tasks={tasks} quotaMinutes={quotaMinutes} />
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Carryover Dialog */}
+      <Dialog open={carryoverOpen} onOpenChange={setCarryoverOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unfinished Tasks Found</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground">
+            You left {carryoverTasks.length} tasks unfinished yesterday.
+          </p>
+          <ScrollArea className="max-h-[45vh]">
+            <ul className="grid list-none gap-2 p-0">
+              {carryoverTasks.map((task) => (
+                <li
+                  key={task.id}
+                  className="grid grid-cols-[1fr_auto_auto] items-center gap-1.5 rounded-md border bg-muted p-2.5"
+                  style={{
+                    borderLeftWidth: 3,
+                    borderLeftColor:
+                      task.priority === "high"
+                        ? "hsl(var(--priority-high))"
+                        : task.priority === "low"
+                          ? "hsl(var(--priority-low))"
+                          : "hsl(var(--priority-medium))",
+                  }}
+                >
+                  <span>{task.title}</span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      carryoverAction("pending", todayKey.current, [task.id!])
+                    }
+                  >
+                    Move to Today
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      carryoverAction("carried", task.date, [task.id!])
+                    }
+                  >
+                    Dismiss
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
+          <DialogFooter className="flex-wrap gap-1.5">
+            <Button
+              type="button"
+              onClick={() =>
+                carryoverAction("pending", todayKey.current)
+              }
+            >
+              Move All
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => carryoverAction("carried", null)}
+            >
+              Dismiss All
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setCarryoverOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog
+        open={editingTask !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingTask(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="grid gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-title">Task Title</Label>
+              <Input
+                id="edit-title"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                maxLength={120}
+                required
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="edit-priority">Priority</Label>
+                <Select
+                  value={editPriority}
+                  onValueChange={(v) => setEditPriority(v as Priority)}
+                >
+                  <SelectTrigger id="edit-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="edit-estimated">Estimated Minutes</Label>
+                <Input
+                  id="edit-estimated"
+                  type="number"
+                  min={0}
+                  step={5}
+                  value={editEstimated}
+                  onChange={(e) => setEditEstimated(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-notes">Notes</Label>
+              <Textarea
+                id="edit-notes"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                maxLength={500}
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-link">Reference Link</Label>
+              <Input
+                id="edit-link"
+                type="url"
+                value={editLink}
+                onChange={(e) => setEditLink(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit">Save Task</Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingTask(null)}
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tomorrow Planner Dialog */}
+      <Dialog
+        open={tomorrowPlannerOpen}
+        onOpenChange={setTomorrowPlannerOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Tomorrow Starts Tonight.</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground">
+            It is time to plan tomorrow. Open the Tomorrow section and add
+            tasks now?
+          </p>
+          <DialogFooter className="flex-wrap gap-1.5">
+            <Button
+              type="button"
+              onClick={() => {
+                setTomorrowPlannerOpen(false);
+                setExpandedBuckets((prev) => new Set(prev).add("tomorrow"));
+                openCreation("tomorrow");
+              }}
+            >
+              Plan Tomorrow
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setTomorrowPlannerOpen(false);
+                tomorrowTimerRef.current = setTimeout(
+                  () => setTomorrowPlannerOpen(true),
+                  15 * 60 * 1000
+                );
+              }}
+            >
+              Snooze 15m
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setTomorrowPlannerOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}

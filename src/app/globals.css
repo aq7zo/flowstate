@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 9% 4%;
+    --foreground: 247 40% 95%;
+    --card: 240 17% 8%;
+    --card-foreground: 247 40% 95%;
+    --popover: 240 17% 8%;
+    --popover-foreground: 247 40% 95%;
+    --primary: 246 90% 70%;
+    --primary-foreground: 240 20% 4%;
+    --secondary: 246 90% 20%;
+    --secondary-foreground: 247 40% 95%;
+    --muted: 240 19% 13%;
+    --muted-foreground: 242 12% 53%;
+    --accent: 172 67% 55%;
+    --accent-foreground: 240 20% 4%;
+    --destructive: 0 91% 71%;
+    --destructive-foreground: 247 40% 95%;
+    --border: 246 90% 70% / 0.15;
+    --input: 246 90% 70% / 0.15;
+    --ring: 246 90% 70%;
+    --radius: 0.75rem;
+
+    --warning: 37 91% 55%;
+    --warning-foreground: 240 20% 4%;
+    --success: 142 69% 58%;
+    --success-foreground: 240 20% 4%;
+    --faint: 243 16% 28%;
+
+    --priority-high: 0 91% 71%;
+    --priority-medium: 37 91% 55%;
+    --priority-low: 142 69% 58%;
+
+    --shadow-soft: 0 18px 32px rgba(0, 0, 0, 0.35);
+
+    --rb-accent: hsl(var(--primary));
+    --rb-accent-foreground: hsl(var(--primary-foreground));
+    --rb-radius: var(--radius);
+    --rb-surface: hsl(var(--card));
+    --rb-surface-foreground: hsl(var(--card-foreground));
+    --rb-font-sans: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+    --rb-font-mono: var(--font-mono, ui-monospace, monospace);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans leading-relaxed;
+    background-image: radial-gradient(
+      circle at 80% 0%,
+      hsl(var(--primary) / 0.14),
+      transparent 42%
+    );
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-serif m-0;
+    text-wrap: balance;
+  }
+
+  h1 {
+    @apply font-light tracking-tight;
+    font-size: clamp(2rem, 4vw, 3rem);
+  }
+
+  h2 {
+    @apply font-medium;
+    font-size: clamp(1.3rem, 2vw, 1.9rem);
+  }
+
+  p {
+    @apply m-0;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .mono {
+    @apply font-mono tabular-nums;
+  }
+}
