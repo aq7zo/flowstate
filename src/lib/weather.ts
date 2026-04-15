@@ -54,10 +54,8 @@ export async function fetchWeather(
   lat: number,
   lon: number
 ): Promise<any> {
-  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": "Flowstate/1.0 flowstate-app@github.com" },
-  });
+  const url = `/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Weather API ${res.status}`);
   return res.json();
 }
