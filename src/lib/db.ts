@@ -11,7 +11,11 @@ import type {
   AppSettings,
   ExportSnapshot,
   ImportMode,
+  TaskActivityEvent,
+  AccomplishedHistoryEntry,
+  ReleaseNote,
 } from "@/types";
+import { collectCascadeIds } from "@/lib/recycle-bin";
 
 const DEFAULT_SETTINGS: AppSettings = {
   key: "app",
@@ -22,6 +26,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   longBreakMin: 15,
   sessionsBeforeLong: 4,
   alarmType: "file",
+  alarmPreset: "digital",
   alarmFile: "",
   alarmVolume: 0.8,
   alarmFade: false,
@@ -45,6 +50,9 @@ class FlowstateDB extends Dexie {
   calendarEvents!: Table<CalendarEvent, number>;
   settings!: Table<AppSettings, string>;
   dailySummary!: Table<DailySummary, string>;
+  taskActivity!: Table<TaskActivityEvent, number>;
+  accomplishedHistory!: Table<AccomplishedHistoryEntry, number>;
+  releaseNotes!: Table<ReleaseNote, number>;
 
   constructor() {
     super("flowstateDB");
@@ -56,6 +64,28 @@ class FlowstateDB extends Dexie {
       settings: "key",
       dailySummary: "date",
     });
+    this.version(2)
+      .stores({
+        tasks:
+          "++id, date, status, type, priority, parentId, templateId, order, bucket, deletedAt",
+        templates: "++id, name, createdAt",
+        pomodoroLogs: "++id, taskId, date, duration, type",
+        calendarEvents: "++id, date, source, type",
+        settings: "key",
+        dailySummary: "date",
+        taskActivity: "++id, taskId, date, at, type",
+        accomplishedHistory: "++id, snapshotDate, taskId, date, completedAt",
+        releaseNotes: "++id, date",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("tasks")
+          .toCollection()
+          .modify((row: Record<string, unknown>) => {
+            if (!("deletedAt" in row)) row.deletedAt = null;
+            if (!("deletedReason" in row)) row.deletedReason = null;
+          });
+      });
   }
 }
 
@@ -80,6 +110,12 @@ function normalizeTask(raw: Record<string, unknown>): Task {
   }
   if (typeof raw.dueDate !== "string") {
     raw.dueDate = null;
+  }
+  if (!(raw.deletedAt instanceof Date)) {
+    raw.deletedAt = null;
+  }
+  if (typeof raw.deletedReason !== "string") {
+    raw.deletedReason = null;
   }
   return raw as unknown as Task;
 }
@@ -140,8 +176,17 @@ export async function createTask(taskInput: TaskInput): Promise<Task> {
     order: nextOrder,
     createdAt: new Date(),
     completedAt: null,
+    deletedAt: null,
+    deletedReason: null,
   };
   const id = await d.tasks.add(payload);
+  await addTaskActivity({
+    taskId: id,
+    type: "created",
+    date: payload.date,
+    at: new Date(),
+    title: payload.title,
+  });
   return { ...payload, id };
 }
 
@@ -149,6 +194,7 @@ export async function getTasksByDate(date: string): Promise<Task[]> {
   const raw = await db().tasks.where("date").equals(date).toArray();
   return raw
     .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+    .filter((t) => !t.deletedAt)
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
@@ -156,6 +202,7 @@ export async function getAllTasks(): Promise<Task[]> {
   const raw = await db().tasks.toArray();
   return raw
     .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+    .filter((t) => !t.deletedAt)
     .sort((a, b) => {
       if (a.date === b.date) return (a.order || 0) - (b.order || 0);
       return a.date.localeCompare(b.date);
@@ -166,14 +213,37 @@ export async function updateTask(
   id: number,
   updates: Partial<Task>
 ): Promise<Task | undefined> {
-  await db().tasks.update(id, updates);
+  const d = db();
+  const previous = await d.tasks.get(id);
+  await d.tasks.update(id, updates);
   const raw = await db().tasks.get(id);
   if (!raw) return undefined;
-  return normalizeTask(raw as unknown as Record<string, unknown>);
+  const nextTask = normalizeTask(raw as unknown as Record<string, unknown>);
+  if (previous) {
+    const prev = normalizeTask(previous as unknown as Record<string, unknown>);
+    if (prev.status !== nextTask.status) {
+      await addTaskActivity({
+        taskId: id,
+        type: nextTask.status === "done" ? "completed" : "uncompleted",
+        date: nextTask.date,
+        at: new Date(),
+        title: nextTask.title,
+      });
+    } else {
+      await addTaskActivity({
+        taskId: id,
+        type: "updated",
+        date: nextTask.date,
+        at: new Date(),
+        title: nextTask.title,
+      });
+    }
+  }
+  return nextTask;
 }
 
 export async function deleteTask(id: number): Promise<void> {
-  await db().tasks.delete(id);
+  await softDeleteTasks([id]);
 }
 
 export async function getTaskById(id: number): Promise<Task | undefined> {
@@ -185,9 +255,33 @@ export async function getTaskById(id: number): Promise<Task | undefined> {
 export async function bulkUpdateTasks(
   updates: { id: number; changes: Partial<Task> }[]
 ): Promise<void> {
-  await db().transaction("rw", db().tasks, async () => {
+  const d = db();
+  await d.transaction("rw", d.tasks, d.taskActivity, async () => {
     for (const entry of updates) {
-      await db().tasks.update(entry.id, entry.changes);
+      const before = await d.tasks.get(entry.id);
+      if (!before) continue;
+      await d.tasks.update(entry.id, entry.changes);
+      const after = await d.tasks.get(entry.id);
+      if (!after) continue;
+      const prev = normalizeTask(before as unknown as Record<string, unknown>);
+      const nextTask = normalizeTask(after as unknown as Record<string, unknown>);
+      if (prev.status !== nextTask.status) {
+        await d.taskActivity.add({
+          taskId: entry.id,
+          type: nextTask.status === "done" ? "completed" : "uncompleted",
+          date: nextTask.date,
+          at: new Date(),
+          title: nextTask.title,
+        });
+      } else {
+        await d.taskActivity.add({
+          taskId: entry.id,
+          type: "updated",
+          date: nextTask.date,
+          at: new Date(),
+          title: nextTask.title,
+        });
+      }
     }
   });
 }
@@ -196,9 +290,117 @@ export async function getUnfinishedTasksByDate(date: string): Promise<Task[]> {
   const raw = await db()
     .tasks.where("date")
     .equals(date)
-    .and((task) => task.status !== "done")
+    .and((task) => task.status !== "done" && !task.deletedAt)
     .toArray();
   return raw.map((t) => normalizeTask(t as unknown as Record<string, unknown>));
+}
+
+export async function addTaskActivity(event: TaskActivityEvent): Promise<void> {
+  await db().taskActivity.add(event);
+}
+
+export async function getTaskActivity(limit = 300): Promise<TaskActivityEvent[]> {
+  return db().taskActivity.orderBy("at").reverse().limit(limit).toArray();
+}
+
+export async function getDeletedTasks(): Promise<Task[]> {
+  const rows = await db()
+    .tasks.toCollection()
+    .filter((task) => task.deletedAt != null)
+    .toArray();
+  return rows
+    .map((t) => normalizeTask(t as unknown as Record<string, unknown>))
+    .sort(
+      (a, b) => (b.deletedAt?.getTime() || 0) - (a.deletedAt?.getTime() || 0)
+    );
+}
+
+export async function softDeleteTasks(ids: number[]): Promise<void> {
+  const d = db();
+  await d.transaction("rw", d.tasks, d.taskActivity, async () => {
+    const all = (await d.tasks.toArray()).map((task) =>
+      normalizeTask(task as unknown as Record<string, unknown>)
+    );
+    const activeTasks = all.filter((task) => !task.deletedAt);
+    const expandedIds = collectCascadeIds(activeTasks, ids);
+    const deletedAt = new Date();
+
+    for (const id of expandedIds) {
+      const existing = await d.tasks.get(id);
+      if (!existing) continue;
+      const task = normalizeTask(existing as unknown as Record<string, unknown>);
+      if (task.deletedAt) continue;
+      await d.tasks.update(id, {
+        deletedAt,
+        deletedReason: ids.includes(id) ? "user" : "cascade",
+      });
+      await d.taskActivity.add({
+        taskId: id,
+        type: "deleted",
+        date: task.date,
+        at: deletedAt,
+        title: task.title,
+      });
+    }
+  });
+}
+
+export async function restoreDeletedTasks(ids: number[]): Promise<void> {
+  const d = db();
+  await d.transaction("rw", d.tasks, d.taskActivity, async () => {
+    for (const id of ids) {
+      const existing = await d.tasks.get(id);
+      if (!existing) continue;
+      const task = normalizeTask(existing as unknown as Record<string, unknown>);
+      await d.tasks.update(id, { deletedAt: null, deletedReason: null });
+      await d.taskActivity.add({
+        taskId: id,
+        type: "restored",
+        date: task.date,
+        at: new Date(),
+        title: task.title,
+      });
+    }
+  });
+}
+
+export async function permanentlyDeleteTasks(ids: number[]): Promise<void> {
+  const d = db();
+  await d.transaction("rw", d.tasks, async () => {
+    const deleted = (await d.tasks.toArray())
+      .map((task) => normalizeTask(task as unknown as Record<string, unknown>))
+      .filter((task) => task.deletedAt);
+    const expandedIds = collectCascadeIds(deleted, ids);
+    if (expandedIds.length === 0) return;
+    await d.tasks.bulkDelete(expandedIds);
+  });
+}
+
+export async function addAccomplishedHistoryEntries(
+  entries: Omit<AccomplishedHistoryEntry, "id">[]
+): Promise<void> {
+  if (entries.length === 0) return;
+  await db().accomplishedHistory.bulkAdd(entries);
+}
+
+export async function getAccomplishedHistory(
+  limit = 500
+): Promise<AccomplishedHistoryEntry[]> {
+  return db()
+    .accomplishedHistory.orderBy("completedAt")
+    .reverse()
+    .limit(limit)
+    .toArray();
+}
+
+export async function getReleaseNotes(): Promise<ReleaseNote[]> {
+  return db().releaseNotes.orderBy("date").reverse().toArray();
+}
+
+export async function seedReleaseNotes(notes: ReleaseNote[]): Promise<void> {
+  const existing = await db().releaseNotes.count();
+  if (existing > 0 || notes.length === 0) return;
+  await db().releaseNotes.bulkAdd(notes);
 }
 
 export async function addPomodoroLog(logInput: PomodoroLogInput): Promise<void> {
@@ -304,7 +506,17 @@ export async function getDailySummaryRange(
 
 export async function exportSnapshot(): Promise<ExportSnapshot> {
   const d = db();
-  const [rawTasks, templates, pomodoroLogs, calendarEvents, settings, dailySummary] =
+  const [
+    rawTasks,
+    templates,
+    pomodoroLogs,
+    calendarEvents,
+    settings,
+    dailySummary,
+    taskActivity,
+    accomplishedHistory,
+    releaseNotes,
+  ] =
     await Promise.all([
       d.tasks.toArray(),
       d.templates.toArray(),
@@ -312,6 +524,9 @@ export async function exportSnapshot(): Promise<ExportSnapshot> {
       d.calendarEvents.toArray(),
       getSettings(),
       d.dailySummary.toArray(),
+      d.taskActivity.toArray(),
+      d.accomplishedHistory.toArray(),
+      d.releaseNotes.toArray(),
     ]);
   const tasks = rawTasks.map((t) =>
     normalizeTask(t as unknown as Record<string, unknown>)
@@ -325,6 +540,9 @@ export async function exportSnapshot(): Promise<ExportSnapshot> {
     calendarEvents,
     settings,
     dailySummary,
+    taskActivity,
+    accomplishedHistory,
+    releaseNotes,
   };
 }
 
@@ -339,6 +557,9 @@ export async function importSnapshot(
     "pomodoroLogs",
     "calendarEvents",
     "dailySummary",
+    "taskActivity",
+    "accomplishedHistory",
+    "releaseNotes",
   ] as const;
   const map = {
     tasks: payload.tasks || [],
@@ -346,6 +567,9 @@ export async function importSnapshot(
     pomodoroLogs: payload.pomodoroLogs || [],
     calendarEvents: payload.calendarEvents || [],
     dailySummary: payload.dailySummary || [],
+    taskActivity: payload.taskActivity || [],
+    accomplishedHistory: payload.accomplishedHistory || [],
+    releaseNotes: payload.releaseNotes || [],
   };
 
   const allTables = [
@@ -354,6 +578,9 @@ export async function importSnapshot(
     d.pomodoroLogs,
     d.calendarEvents,
     d.dailySummary,
+    d.taskActivity,
+    d.accomplishedHistory,
+    d.releaseNotes,
     d.settings,
   ];
 
@@ -365,6 +592,9 @@ export async function importSnapshot(
         d.pomodoroLogs.clear(),
         d.calendarEvents.clear(),
         d.dailySummary.clear(),
+        d.taskActivity.clear(),
+        d.accomplishedHistory.clear(),
+        d.releaseNotes.clear(),
       ]);
       for (const tableName of tables) {
         if (map[tableName].length > 0) {
@@ -393,7 +623,16 @@ export async function importSnapshot(
 
 export async function clearAllData(): Promise<void> {
   const d = db();
-  const tables = [d.tasks, d.templates, d.pomodoroLogs, d.calendarEvents, d.dailySummary];
+  const tables = [
+    d.tasks,
+    d.templates,
+    d.pomodoroLogs,
+    d.calendarEvents,
+    d.dailySummary,
+    d.taskActivity,
+    d.accomplishedHistory,
+    d.releaseNotes,
+  ];
   await d.transaction("rw", tables, async () => {
     await Promise.all([
       d.tasks.clear(),
@@ -401,6 +640,9 @@ export async function clearAllData(): Promise<void> {
       d.pomodoroLogs.clear(),
       d.calendarEvents.clear(),
       d.dailySummary.clear(),
+      d.taskActivity.clear(),
+      d.accomplishedHistory.clear(),
+      d.releaseNotes.clear(),
     ]);
   });
 }

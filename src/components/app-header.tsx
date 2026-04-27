@@ -37,18 +37,31 @@ export function AppHeader() {
           </Link>
         ))}
       </nav>
-      <Link
-        href="/settings"
-        className={cn(
-          "min-w-8 justify-self-end rounded-full px-2 py-1 text-center text-sm no-underline transition-colors",
-          pathname === "/settings"
-            ? "bg-primary/15 text-primary"
-            : "text-muted-foreground hover:text-foreground"
-        )}
-        aria-label="Settings"
-      >
-        ⚙
-      </Link>
+      <div className="flex items-center justify-self-end gap-1.5">
+        <Link
+          href="/changelog"
+          className={cn(
+            "rounded-full px-2.5 py-1 text-xs no-underline transition-colors",
+            pathname === "/changelog"
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Log
+        </Link>
+        <Link
+          href="/settings"
+          className={cn(
+            "min-w-8 rounded-full px-2 py-1 text-center text-sm no-underline transition-colors",
+            pathname === "/settings"
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+          aria-label="Settings"
+        >
+          ⚙
+        </Link>
+      </div>
     </header>
   );
 }

@@ -4,6 +4,7 @@ export type TaskType = "standard" | "sequential";
 export type Bucket = "today" | "tomorrow" | "upcoming";
 export type PomodoroPhase = "IDLE" | "WORK" | "BREAK" | "LONG_BREAK";
 export type AlarmType = "file" | "youtube" | "none";
+export type AlarmPreset = "digital" | "soft-bell" | "uplift";
 export type ImportMode = "merge" | "replace";
 export type WeekStartDay =
   | "monday"
@@ -33,6 +34,8 @@ export interface Task {
   order: number;
   createdAt: Date;
   completedAt: Date | null;
+  deletedAt?: Date | null;
+  deletedReason?: "user" | "cascade" | null;
 }
 
 export interface TaskInput {
@@ -111,6 +114,7 @@ export interface AppSettings {
   longBreakMin: number;
   sessionsBeforeLong: number;
   alarmType: AlarmType;
+  alarmPreset?: AlarmPreset;
   alarmFile: string;
   alarmUrl?: string;
   alarmVolume: number;
@@ -134,6 +138,39 @@ export interface AppSettings {
   weekStartDay?: WeekStartDay;
 }
 
+export interface TaskActivityEvent {
+  id?: number;
+  taskId: number;
+  type:
+    | "created"
+    | "updated"
+    | "completed"
+    | "uncompleted"
+    | "deleted"
+    | "restored"
+    | "rolled-over";
+  date: string;
+  at: Date;
+  title: string;
+  details?: string;
+}
+
+export interface AccomplishedHistoryEntry {
+  id?: number;
+  taskId: number;
+  title: string;
+  date: string;
+  completedAt: Date;
+  snapshotDate: string;
+}
+
+export interface ReleaseNote {
+  id?: number;
+  date: string;
+  title: string;
+  content: string;
+}
+
 export interface ExportSnapshot {
   exportedAt: string;
   version: string;
@@ -143,4 +180,7 @@ export interface ExportSnapshot {
   calendarEvents: CalendarEvent[];
   settings: AppSettings;
   dailySummary: DailySummary[];
+  taskActivity: TaskActivityEvent[];
+  accomplishedHistory: AccomplishedHistoryEntry[];
+  releaseNotes: ReleaseNote[];
 }

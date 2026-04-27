@@ -85,7 +85,7 @@ export default function SettingsPage() {
     init();
   }, []);
 
-  async function save() {
+  async function save(overrides: Partial<AppSettings> = {}) {
     const next = await patchSettings({
       defaultPriority,
       carryOverThreshold: Math.max(1, Number(carryThreshold) || 1),
@@ -97,6 +97,7 @@ export default function SettingsPage() {
       weatherCity: weatherCity.trim(),
       weatherLat: weatherLat ? Number(weatherLat) : null,
       weatherLon: weatherLon ? Number(weatherLon) : null,
+      ...overrides,
     });
     setSettings(next);
   }
@@ -200,8 +201,9 @@ export default function SettingsPage() {
               <Select
                 value={defaultPriority}
                 onValueChange={(v) => {
-                  setDefaultPriority(v as Priority);
-                  setTimeout(save, 0);
+                  const next = v as Priority;
+                  setDefaultPriority(next);
+                  void save({ defaultPriority: next });
                 }}
               >
                 <SelectTrigger id="s-priority">
@@ -225,7 +227,7 @@ export default function SettingsPage() {
                 step={0.5}
                 value={dailyQuota}
                 onChange={(e) => setDailyQuota(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
                 placeholder="8"
               />
             </div>
@@ -237,7 +239,7 @@ export default function SettingsPage() {
                 min={1}
                 value={carryThreshold}
                 onChange={(e) => setCarryThreshold(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
               />
             </div>
             <div className="grid gap-2">
@@ -248,7 +250,7 @@ export default function SettingsPage() {
                 min={0}
                 value={maxNestingDepth}
                 onChange={(e) => setMaxNestingDepth(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
                 placeholder="0 = unlimited"
               />
             </div>
@@ -261,7 +263,7 @@ export default function SettingsPage() {
                 type="time"
                 value={tomorrowPromptTime}
                 onChange={(e) => setTomorrowPromptTime(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
               />
             </div>
             <div className="grid gap-2">
@@ -269,8 +271,9 @@ export default function SettingsPage() {
               <Select
                 value={weekStartDay}
                 onValueChange={(v) => {
-                  setWeekStartDay(v as WeekStartDay);
-                  setTimeout(save, 0);
+                  const next = v as WeekStartDay;
+                  setWeekStartDay(next);
+                  void save({ weekStartDay: next });
                 }}
               >
                 <SelectTrigger id="s-week-start">
@@ -292,8 +295,9 @@ export default function SettingsPage() {
                 id="s-tomorrow-enabled"
                 checked={tomorrowPromptEnabled}
                 onCheckedChange={(v) => {
-                  setTomorrowPromptEnabled(v === true);
-                  setTimeout(save, 0);
+                  const next = v === true;
+                  setTomorrowPromptEnabled(next);
+                  void save({ tomorrowPromptEnabled: next });
                 }}
               />
               <Label htmlFor="s-tomorrow-enabled">
@@ -321,7 +325,7 @@ export default function SettingsPage() {
                 id="s-city"
                 value={weatherCity}
                 onChange={(e) => setWeatherCity(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
                 placeholder="Oslo"
               />
               <p className="text-[0.7rem] text-transparent" aria-hidden="true">
@@ -336,7 +340,7 @@ export default function SettingsPage() {
                 step="any"
                 value={weatherLat}
                 onChange={(e) => setWeatherLat(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
                 placeholder="14.5995"
               />
               <p className="text-[0.7rem] text-muted-foreground">
@@ -351,7 +355,7 @@ export default function SettingsPage() {
                 step="any"
                 value={weatherLon}
                 onChange={(e) => setWeatherLon(e.target.value)}
-                onBlur={save}
+                onBlur={() => void save()}
                 placeholder="120.9842"
               />
               <p className="text-[0.7rem] text-muted-foreground">

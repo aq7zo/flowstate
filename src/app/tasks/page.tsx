@@ -9,7 +9,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus } from "lucide-react";
+import { History, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { DateWidget } from "@/components/date-widget";
 import { WeatherWidget } from "@/components/weather-widget";
@@ -60,11 +67,22 @@ import {
   getAllTasks,
   createTask,
   updateTask,
-  deleteTask,
+  softDeleteTasks,
   bulkUpdateTasks,
   getUnfinishedTasksByDate,
+  getDeletedTasks,
+  restoreDeletedTasks,
+  permanentlyDeleteTasks,
+  addAccomplishedHistoryEntries,
+  getAccomplishedHistory,
 } from "@/lib/db";
 import { toDateKey, yesterdayKey, minutesToClock } from "@/lib/dates";
+import {
+  buildDeletedTaskTree,
+  collectCascadeIds,
+  collectRestoreViolations,
+  type DeletedTaskNode,
+} from "@/lib/recycle-bin";
 
 import type { Task, AppSettings, Bucket, Priority } from "@/types";
 
@@ -128,6 +146,13 @@ export default function TasksPage() {
   const [carryoverOpen, setCarryoverOpen] = useState(false);
   const [carryoverTasks, setCarryoverTasks] = useState<Task[]>([]);
   const [tomorrowPlannerOpen, setTomorrowPlannerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [recycleOpen, setRecycleOpen] = useState(false);
+  const [accomplishedHistory, setAccomplishedHistory] = useState<
+    Awaited<ReturnType<typeof getAccomplishedHistory>>
+  >([]);
+  const [deletedTasks, setDeletedTasks] = useState<Task[]>([]);
+  const [selectedDeleted, setSelectedDeleted] = useState<Set<number>>(new Set());
 
   const [expandedBuckets, setExpandedBuckets] = useState<Set<Bucket>>(
     new Set(["today"])
@@ -162,9 +187,15 @@ export default function TasksPage() {
         const allTasks = await getAllTasks();
         const rolloverTargets = allTasks.filter((task) => {
           const bucket = normalizeBucket(task.bucket);
-          if (bucket === "tomorrow") return true;
+          if (
+            bucket === "today" &&
+            task.date === s.lastSessionDate &&
+            task.status !== "done"
+          ) {
+            return true;
+          }
           if (bucket !== "upcoming") return false;
-          return Boolean(task.dueDate && task.dueDate <= todayKey.current);
+          return Boolean(task.dueDate && task.dueDate === todayKey.current);
         });
         if (rolloverTargets.length > 0) {
           await bulkUpdateTasks(
@@ -173,6 +204,27 @@ export default function TasksPage() {
               changes: { bucket: "today", date: todayKey.current },
             }))
           );
+        }
+
+        if (s.lastSessionDate) {
+          const yesterdayDone = allTasks.filter(
+            (task) => task.date === s.lastSessionDate && task.status === "done"
+          );
+          const existing = await getAccomplishedHistory(1000);
+          const alreadySnapshotted = existing.some(
+            (entry) => entry.snapshotDate === todayKey.current
+          );
+          if (!alreadySnapshotted && yesterdayDone.length > 0) {
+            await addAccomplishedHistoryEntries(
+              yesterdayDone.map((task) => ({
+                taskId: task.id!,
+                title: task.title,
+                date: task.date,
+                completedAt: task.completedAt ?? new Date(),
+                snapshotDate: todayKey.current,
+              }))
+            );
+          }
         }
       }
 
@@ -431,9 +483,43 @@ export default function TasksPage() {
   }
 
   async function handleDeleteTask(task: Task) {
-    const removeIds = [task.id!, ...getDescendantIds(task.id!, tasks)];
-    for (const id of removeIds) await deleteTask(id);
+    await softDeleteTasks([task.id!]);
     await refresh();
+  }
+
+  async function openHistoryDialog() {
+    setAccomplishedHistory(await getAccomplishedHistory());
+    setHistoryOpen(true);
+  }
+
+  async function openRecycleDialog() {
+    setDeletedTasks(await getDeletedTasks());
+    setSelectedDeleted(new Set());
+    setRecycleOpen(true);
+  }
+
+  async function restoreSelectedDeleted() {
+    const ids = Array.from(selectedDeleted);
+    if (ids.length === 0) return;
+    const violations = collectRestoreViolations(selectedDeleted, deletedTasks);
+    if (violations.length > 0) {
+      setFeedback(violations[0]);
+      return;
+    }
+    await restoreDeletedTasks(ids);
+    setDeletedTasks(await getDeletedTasks());
+    setSelectedDeleted(new Set());
+    setFeedback("");
+    await refresh();
+  }
+
+  async function permanentlyDeleteSelected() {
+    const ids = Array.from(selectedDeleted);
+    if (ids.length === 0) return;
+    const expanded = collectCascadeIds(deletedTasks, ids);
+    await permanentlyDeleteTasks(expanded);
+    setDeletedTasks(await getDeletedTasks());
+    setSelectedDeleted(new Set());
   }
 
   async function handleReorder(
@@ -510,12 +596,63 @@ export default function TasksPage() {
   const customTagColors = Object.fromEntries(
     (settings.customTags ?? []).map((t) => [t.name, t.color])
   ) as Record<string, string>;
-  const totalDone = tasks.filter((t) => t.status === "done").length;
-  const estimated = tasks.reduce(
+  const todayTasks = tasks.filter((t) => normalizeBucket(t.bucket) === "today");
+  const totalDone = todayTasks.filter((t) => t.status === "done").length;
+  const estimated = todayTasks.reduce(
     (sum, t) => sum + (Number(t.estimatedMin) || 0),
     0
   );
   const overQuota = estimated > quotaMinutes;
+  const deletedTree = buildDeletedTaskTree(deletedTasks);
+
+  function toggleDeletedSelection(taskId: number, checked: boolean | string) {
+    setSelectedDeleted((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(taskId);
+      else next.delete(taskId);
+      return next;
+    });
+  }
+
+  function renderDeletedNode(node: DeletedTaskNode) {
+    const task = node.task;
+    const depth = deletedTree.depthById.get(task.id) ?? 0;
+    const relationLabel =
+      node.relation === "subtask"
+        ? task.parentId != null
+          ? `sub-task of "${deletedTree.byId.get(task.parentId)?.task.title ?? "..."}"`
+          : null
+        : node.relation === "sequential"
+          ? task.dependsOn != null
+            ? `after "${deletedTree.byId.get(task.dependsOn)?.task.title ?? "..."}"`
+            : null
+          : null;
+
+    return (
+      <div key={task.id} className="grid gap-1.5">
+        <label className="flex items-center gap-2 rounded-md border p-2">
+          <Checkbox
+            checked={selectedDeleted.has(task.id)}
+            onCheckedChange={(checked) => toggleDeletedSelection(task.id, checked)}
+          />
+          <div className="flex-1">
+            <p style={{ marginLeft: `${depth * 12}px` }}>{task.title}</p>
+            <p className="mono text-xs text-muted-foreground">
+              deleted: {task.deletedAt?.toLocaleDateString()}
+            </p>
+            {relationLabel && (
+              <p className="mono text-xs text-muted-foreground">{relationLabel}</p>
+            )}
+          </div>
+        </label>
+        {node.children.length > 0 && (
+          <div className="grid gap-1.5">
+            {node.children.map((child) => renderDeletedNode(child))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <section className="grid gap-4">
@@ -530,8 +667,40 @@ export default function TasksPage() {
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="mono text-muted-foreground">
-              {totalDone}/{tasks.length} completed
+              {totalDone}/{todayTasks.length} completed
             </p>
+            <TooltipProvider delayDuration={250}>
+              <div className="flex items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={openHistoryDialog}
+                      aria-label="Accomplished"
+                    >
+                      <History className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Accomplished</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={openRecycleDialog}
+                      aria-label="Recycle Bin"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Recycle Bin</TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
           </div>
 
           {overQuota && (
@@ -886,6 +1055,48 @@ export default function TasksPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Accomplished Notes History</DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="max-h-[50vh]">
+            <div className="grid gap-3">
+              {accomplishedHistory.map((entry) => (
+                <article key={entry.id} className="rounded-md border p-2.5">
+                  <p>{entry.title}</p>
+                  <p className="mono text-xs text-muted-foreground">
+                    completed: {new Date(entry.completedAt).toLocaleDateString()} | snapshot:{" "}
+                    {entry.snapshotDate}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={recycleOpen} onOpenChange={setRecycleOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Recycle Bin</DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="max-h-[50vh]">
+            <div className="grid gap-2.5">
+              {deletedTree.roots.map((node) => renderDeletedNode(node))}
+            </div>
+          </ScrollArea>
+          <DialogFooter>
+            <Button type="button" onClick={restoreSelectedDeleted}>
+              Restore Selected
+            </Button>
+            <Button type="button" variant="destructive" onClick={permanentlyDeleteSelected}>
+              Delete Permanently
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

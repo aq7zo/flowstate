@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 
+import { Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,9 +21,9 @@ import { Separator } from "@/components/ui/separator";
 
 import { initDb, getSettings, patchSettings, addPomodoroLog } from "@/lib/db";
 import { toDateKey } from "@/lib/dates";
-import { fileToDataUrl, playDataUrl, stopAudio } from "@/lib/audio";
+import { fileToDataUrl, playDataUrl, playPresetAlarm, stopAudio } from "@/lib/audio";
 
-import type { AppSettings, PomodoroPhase, AlarmType } from "@/types";
+import type { AppSettings, PomodoroPhase, AlarmType, AlarmPreset } from "@/types";
 
 function formatClock(seconds: number): string {
   const mins = String(Math.floor(seconds / 60)).padStart(2, "0");
@@ -69,6 +70,7 @@ export default function FocusPage() {
   const [alarmVolume, setAlarmVolume] = useState(0.8);
   const [alarmFade, setAlarmFade] = useState(false);
   const [alarmYoutubeUrl, setAlarmYoutubeUrl] = useState("");
+  const [alarmPreset, setAlarmPreset] = useState<AlarmPreset>("digital");
   const [alarmStatus, setAlarmStatus] = useState("");
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -97,6 +99,7 @@ export default function FocusPage() {
       setAlarmVolume(s.alarmVolume ?? 0.8);
       setAlarmFade(s.alarmFade || false);
       setAlarmYoutubeUrl(s.alarmUrl || "");
+      setAlarmPreset(s.alarmPreset ?? "digital");
       setReady(true);
     }
     init();
@@ -193,6 +196,8 @@ export default function FocusPage() {
       playYoutubeAlarm(s.alarmUrl, s.alarmVolume);
     } else if (s.alarmType === "file" && s.alarmFile) {
       await playDataUrl(s.alarmFile, s.alarmVolume, s.alarmFade);
+    } else if (s.alarmType === "file") {
+      await playPresetAlarm(s.alarmPreset ?? "digital", s.alarmVolume);
     }
   }
 
@@ -270,6 +275,7 @@ export default function FocusPage() {
     const s = settingsRef.current!;
     const next = await patchSettings({
       alarmType,
+      alarmPreset,
       alarmFile: s.alarmFile,
       alarmUrl: alarmYoutubeUrl.trim(),
       alarmVolume,
@@ -301,11 +307,18 @@ export default function FocusPage() {
       return;
     }
     if (!s.alarmFile) {
-      setAlarmStatus("Add and save an audio file first.");
-      return;
+      await playPresetAlarm(alarmPreset, alarmVolume);
+      setAlarmStatus(`Previewing preset: ${alarmPreset}`);
+    } else {
+      await playDataUrl(s.alarmFile, alarmVolume, alarmFade);
+      setAlarmStatus("Preview playing…");
     }
-    await playDataUrl(s.alarmFile, alarmVolume, alarmFade);
-    setAlarmStatus("Preview playing…");
+  }
+
+  function stopPreview() {
+    stopAudio();
+    stopYoutube();
+    setAlarmStatus("Preview stopped.");
   }
 
   if (!ready) {
@@ -472,17 +485,35 @@ export default function FocusPage() {
                   </Select>
                 </div>
                 {alarmType === "file" && (
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="alarm-file">
-                      Upload Audio (mp3, wav, ogg)
-                    </Label>
-                    <Input
-                      id="alarm-file"
-                      type="file"
-                      accept=".mp3,.wav,.ogg,audio/*"
-                      onChange={handleAlarmFile}
-                    />
-                  </div>
+                  <>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="alarm-preset">Preset Sound</Label>
+                      <Select
+                        value={alarmPreset}
+                        onValueChange={(v) => setAlarmPreset(v as AlarmPreset)}
+                      >
+                        <SelectTrigger id="alarm-preset">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="digital">Digital</SelectItem>
+                          <SelectItem value="soft-bell">Soft Bell</SelectItem>
+                          <SelectItem value="uplift">Uplift</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="alarm-file">
+                        Upload Audio (optional override)
+                      </Label>
+                      <Input
+                        id="alarm-file"
+                        type="file"
+                        accept=".mp3,.wav,.ogg,audio/*"
+                        onChange={handleAlarmFile}
+                      />
+                    </div>
+                  </>
                 )}
                 {alarmType === "youtube" && (
                   <div className="grid gap-1.5">
@@ -524,6 +555,10 @@ export default function FocusPage() {
                     onClick={previewAlarm}
                   >
                     Preview
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={stopPreview}>
+                    <Square className="mr-1.5 h-3.5 w-3.5" />
+                    Stop Preview
                   </Button>
                 </div>
                 {alarmStatus && (

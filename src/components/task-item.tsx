@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { cn } from "@/lib/utils";
-import { minutesToClock } from "@/lib/dates";
+import { minutesToClock, toDateKey } from "@/lib/dates";
 
 import SubIcon from "../../assets/icons/sub.svg";
 import SeqIcon from "../../assets/icons/seq.svg";
@@ -325,6 +325,23 @@ function TaskBadges({
           due: {task.dueDate}
         </Badge>
       )}
+      {task.dueDate && task.status !== "done" && task.dueDate < toDateKey() && (
+        <Badge
+          variant="outline"
+          className="text-[0.7rem] px-1.5 py-0 border-destructive/40 bg-destructive/15 text-destructive uppercase tracking-wide"
+        >
+          overdue
+        </Badge>
+      )}
+      {(() => {
+        const ageMs = Date.now() - new Date(task.createdAt).getTime();
+        if (ageMs < 24 * 60 * 60 * 1000) return null;
+        return (
+          <Badge variant="outline" className="mono text-[0.7rem] px-1.5 py-0">
+            created: {new Date(task.createdAt).toLocaleDateString()}
+          </Badge>
+        );
+      })()}
       {parentTask && (
         <Badge
           variant="outline"
